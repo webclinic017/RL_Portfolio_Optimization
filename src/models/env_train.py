@@ -22,30 +22,32 @@ def load_dataframe(year, month):
     return df2
 
 
-class StockEnvTrain(gym.Env):
+class StockEnv(gym.Env):
 
     def __init__(self, dates):
 
         self.action_space = spaces.Box(low=-1, high=1, shape=(STOCK_DIM,))
-
         # Shape = [Current Balance] + [prices 1-n_stocks] + [owned shares 1-n_stocks]
         self.state_size = 2*STOCK_DIM + 1
         self.observation_space = spaces.Box(low=0, high=np.inf, shape=(self.state_size,))
 
-        # Training dates
+        # Training Dates
         self.dates = dates
         self.year, self.month = self.dates.pop()
+
+        print("Year = {}, Month = {}".format(self.year, self.month))
         self.df = load_dataframe(self.year, self.month)
         self.time = 0
 
         self.data = self.df.loc[self.time, :]
+        print("Start = {}".format(self.data['Time'].iloc[0]))
+
         self.df_terminal = False
-        self.dates_terminal = False
+        self.terminal = False
 
         # Initialize rewards
         self.reward = 0
         self.cost = 0
-        self.asset_memory = [INITIAL_BALANCE]
         self.df_portfolio = pd.DataFrame({'portfolio': [INITIAL_BALANCE]})
 
         self.trades = 0
@@ -112,11 +114,16 @@ class StockEnvTrain(gym.Env):
 
         self.df_terminal = self.time >= len(self.df.index.unique()) - 1
 
+        if self.df_terminal:
+            print("End = {}".format(self.data['Time'].iloc[-1]))
+
+
         if self.df_terminal and len(self.dates) == 0:
+            self.terminal = True
             # df_total_value = pd.DataFrame({'account_value': self.asset_memory})
             df_total_value['minute_return'] = self.df_portfolio.pct_change(1)
 
-            return self.state, self.reward, self.df_terminal, {}
+            return self.state, self.reward, self.terminal, {}
 
         else:
             actions = actions * HMAX_NORMALIZE
@@ -137,10 +144,14 @@ class StockEnvTrain(gym.Env):
                 self._buy_stock(index, actions[index])
 
             if self.df_terminal:
-                print("year = {}, month = {}".format(self.year, self.month))
                 self.year, self.month = self.dates.pop()
                 self.df = load_dataframe(self.year, self.month)
                 self.time = 0
+                self.df_terminal = False
+
+                print("Year = {}, Month = {}".format(self.year, self.month))
+                print("Start Next = {}".format(self.df['Time'].iloc[0]))
+
             else:
                 self.time += 1
 
@@ -154,6 +165,33 @@ class StockEnvTrain(gym.Env):
 
         return self.state, self.reward, self.terminal, {}
 
+    def render(self, mode='human'):
+        return self.state
+
+    def _seed(self, seed=None):
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
+
+    def reset(self):
+        self.year, self.month = self.dates.pop()
+        self.df = load_dataframe(self.year, self.month)
+        self.time = 0
+
+        self.data = self.df.loc[self.time, :]
+        self.df_terminal = False
+        self.terminal = False
+
+        # Initialize rewards
+        self.reward = 0
+        self.cost = 0
+        self.df_portfolio = pd.DataFrame({'portfolio': [INITIAL_BALANCE]})
+        self.trades = 0
+        self.rewards_memory = []
+
+        # Initial state space
+        self.state = [INITIAL_BALANCE] + self.data['Price'].tolist() + [0]*STOCK_DIM
+
+        return self.state
 
 
 
