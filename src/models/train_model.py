@@ -1,3 +1,5 @@
+import argparse
+
 import pandas as pd
 import numpy as np
 import time
@@ -27,10 +29,10 @@ class Model(object):
         super().__init__()
         self.training_dates = [(2, i) for i in range(1, 13)]
 
-    def main(self):
+    def main(self, timesteps=10000):
         env_train = DummyVecEnv([lambda: StockEnv(self.training_dates)])
 
-        model = train_PPO(env_train, "PPO", "trained_models", timesteps=10000)
+        model = train_PPO(env_train, "PPO", "trained_models", timesteps=timesteps)
 
         # trading_dates = [(1, i) for i in range(1, 13)]
         #
@@ -40,24 +42,12 @@ class Model(object):
 
 
 if __name__ == "__main__":
+    # extract hyperparameters
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--timesteps', type=int, default=10000, help='Number of timesteps to run (default: 10000)')
+    args = parser.parse_args()
 
     train_model = Model()
 
-    train_model.main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
+    print("Running model training.")
+    train_model.main(timesteps=args.timesteps)
