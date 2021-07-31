@@ -116,11 +116,11 @@ class StockEnv(gym.Env):
 
         if self.df_terminal:
             print("End = {}".format(self.data['Time'].iloc[-1]))
-
+            print("state = " + str(self.state))
+            self.df_portfolio.to_csv("results/returns_{}_{}.csv".format(self.year, self.month))
 
         if self.df_terminal and len(self.dates) == 0:
             self.terminal = True
-            # df_total_value = pd.DataFrame({'account_value': self.asset_memory})
             df_total_value['minute_return'] = self.df_portfolio.pct_change(1)
 
             return self.state, self.reward, self.terminal, {}
