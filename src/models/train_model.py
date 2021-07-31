@@ -2,14 +2,15 @@ import pandas as pd
 import numpy as np
 import time
 from src.models.env_train import StockEnv
-from stable_baselines.common.vec_env import DummyVecEnv
-from stable_baselines import PPO2
+from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3 import PPO
 
 
 def train_PPO(env_train, model_name, output_dir, timesteps=50000):
     """PPO model"""
     start = time.time()
-    model = PPO2('MlpPolicy', env_train, ent_coef=0.005, nminibatches=8)
+    # model = PPO('MlpPolicy', env_train, ent_coef=0.005, nminibatches=8)
+    model = PPO("MlpPolicy", env_train, verbose=1)
 
     print('PPO start training.')
     model.learn(total_timesteps=timesteps)
@@ -29,8 +30,7 @@ class Model(object):
 
     def main(self):
         env_train = DummyVecEnv([lambda: StockEnv(self.training_dates)])
-
-        model = train_PPO(env_train, "PPO", "trained_models", timesteps=10000)
+        model = train_PPO(env_train, "PPO", "trained_models", timesteps=20000)
 
         # trading_dates = [(1, i) for i in range(1, 13)]
         #
