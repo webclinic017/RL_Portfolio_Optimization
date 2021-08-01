@@ -1,7 +1,7 @@
 ARG REGION=us-east-1
 
 # Load the SageMaker PyTorch image
-FROM 520713654638.dkr.ecr.$REGION.amazonaws.com/sagemaker-pytorch:1.1.0-cpu-py3
+FROM 763104351884.dkr.ecr.$REGION.amazonaws.com/pytorch-training:1.8.1-cpu-py36
 
 # Install packages for stable baselines
 RUN apt-get update && apt-get -y install cmake libopenmpi-dev zlib1g-dev
