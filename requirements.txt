@@ -10,6 +10,7 @@ joblib
 pytest
 setuptools
 wheel
+ipython
 
 # Installing scraper, requests, and AWS dependencies
 beautifulsoup4
