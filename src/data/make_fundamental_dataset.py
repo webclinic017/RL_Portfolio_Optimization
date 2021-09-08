@@ -39,4 +39,6 @@ class DataProcess(object):
         full_data = pd.concat([price_data, ratio_data_2], axis=1)
         full_data = full_data.ffill()
 
-        return full_data
+        index = len(full_data[full_data.isna().any(axis=1)])
+
+        return full_data[index:]
