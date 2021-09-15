@@ -16,6 +16,7 @@ def get_etf_holdings(etf_symbol):
        return: list of stock symbols
        '''
     url = 'https://www.barchart.com/stocks/quotes/{}/constituents?page=all'.format(etf_symbol)
+    # url = 'https://www.barchart.com/stocks/indices/nasdaq/nasdaq100'
 
     # Loads the ETF constituents page and reads the holdings table
     browser = WebDriver()  # webdriver.PhantomJS()
