@@ -189,7 +189,7 @@ class GetData(object):
     #     return top_holdings
     
     def get_qqq_holdings(self):
-        df = pd.read_csv("../../data/raw/qqq_holdings.csv")
+        df = pd.read_csv('{}/RL_Portfolio_Optimization/data/raw/qqq_holdings.csv'.format(os.environ['HOME']))
         symbols_list = df['Holding Ticker'].to_list()
         symbols_list = [symbol.strip() for symbol in symbols_list]
         top_holdings = symbols_list[:self.num_holdings]
