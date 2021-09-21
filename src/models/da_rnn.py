@@ -294,7 +294,7 @@ class DA_RNN(nn.Module):
                 # x = np.zeros((self.T - 1, len(indices), self.input_size))
                 x = np.zeros((len(indices), self.T - 1, self.input_size))
                 y_prev = np.zeros((len(indices), self.T - 1))
-                y_gt = self.y[indices + self.T]
+                y_gt = self.y[indices + self.T - 1]
 
                 # format x into 3D tensor
                 for bs in range(len(indices)):
