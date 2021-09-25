@@ -1,31 +1,22 @@
-# installing beautiful soup scraper
-beautifulsoup4==4.9.3
-requests==2.26.0
-boto3==1.18.11
-s3fs==0.4.2
-
 # Model Building Requirements
-numpy==1.16.4
-pandas==1.0.3
-stockstats==0.3.2
-scikit-learn==0.21.0
-gym==0.15.3
-stable-baselines[mpi]==2.10.2
-tensorflow==1.15.4
+numpy
+pandas
+stockstats
+scikit-learn
+stable-baselines3[extra]
+torch
+gym
+joblib
+pytest
+setuptools
+wheel
+ipython
 
-joblib==0.15.1
+# Installing scraper, requests, and AWS dependencies
+beautifulsoup4
+requests
+boto3
+s3fs
 
-# plot
-matplotlib==3.2.1
-
-# testing requirements
-pytest>=5.3.2,<6.0.0
-
-# packaging
-setuptools>=41.4.0,<42.0.0
-wheel>=0.33.6,<0.34.0
-
-# tables
-tables==3.6.1
 
 

@@ -3,6 +3,10 @@ RL Portfolio Optimization
 
 Project aims to use various Deep Reinforcement Learning methods to optimize a portfolio of stocks
 
+Installation
+-------------
+pip install -r requirements.txt
+
 Project Organization
 ------------
 

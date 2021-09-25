@@ -4,14 +4,15 @@ import pandas as pd
 import numpy as np
 import time
 from src.models.env_train import StockEnv
-from stable_baselines.common.vec_env import DummyVecEnv
-from stable_baselines import PPO2
+from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3 import PPO
 
 
 def train_PPO(env_train, model_name, output_dir, timesteps=50000):
     """PPO model"""
     start = time.time()
-    model = PPO2('MlpPolicy', env_train, ent_coef=0.005, nminibatches=8)
+    # model = PPO('MlpPolicy', env_train, ent_coef=0.005, nminibatches=8)
+    model = PPO("MlpPolicy", env_train, verbose=1)
 
     print('PPO start training.')
     model.learn(total_timesteps=timesteps)
@@ -29,9 +30,8 @@ class Model(object):
         super().__init__()
         self.training_dates = [(2, i) for i in range(1, 13)]
 
-    def main(self, timesteps=10000):
+    def main(self, timesteps=20000):
         env_train = DummyVecEnv([lambda: StockEnv(self.training_dates)])
-
         model = train_PPO(env_train, "PPO", "trained_models", timesteps=timesteps)
 
         # trading_dates = [(1, i) for i in range(1, 13)]
@@ -44,7 +44,7 @@ class Model(object):
 if __name__ == "__main__":
     # extract hyperparameters
     parser = argparse.ArgumentParser()
-    parser.add_argument('--timesteps', type=int, default=10000, help='Number of timesteps to run (default: 10000)')
+    parser.add_argument('--timesteps', type=int, default=20000, help='Number of timesteps to run (default: 20000)')
     args = parser.parse_args()
 
     train_model = Model()
