@@ -1,9 +1,9 @@
 # Model Building Requirements
 numpy
 pandas
-stockstats
+# stockstats
 scikit-learn
-stable-baselines3[extra]
+# stable-baselines3[extra]
 torch
 gym
 joblib
