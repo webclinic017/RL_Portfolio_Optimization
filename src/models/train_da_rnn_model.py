@@ -19,11 +19,13 @@ def train_da_rnn(encoder_num_hidden,
     x = np.zeros((10, 1))
     y = np.zeros((10, 1))
     t = 10
+    t_predict = 5
 
     # Train model
     da_rnn = DA_RNN(X=x,
                     y=y,
                     T=t,
+                    T_predict=t_predict,
                     encoder_num_hidden=encoder_num_hidden,
                     decoder_num_hidden=decoder_num_hidden,
                     batch_size=batch_size,
