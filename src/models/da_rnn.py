@@ -11,6 +11,7 @@ References:
     [2] Chandler Zuo. "A PyTorch Example to Use RNN for Financial Prediction" (2017).
 """
 
+from re import T
 import matplotlib.pyplot as plt
 
 import torch
@@ -21,6 +22,26 @@ from torch import optim
 
 from torch.autograd import Variable
 import torch.nn.functional as F
+import pandas as pd
+
+
+def read_data(input_path, debug=True):
+    """
+    Read nasdaq stocks data.
+
+    Args:
+        input_path (str): directory to nasdaq dataset.
+
+    Returns:
+        X (np.ndarray): features.
+        y (np.ndarray): ground truth.
+
+    """
+    df = pd.read_csv(input_path, nrows=250 if debug else None)
+    X = df.loc[:, [x for x in df.columns.tolist() if x != 'NDX']].to_numpy()
+    y = np.array(df.NDX)
+
+    return X, y
 
 
 class Encoder(nn.Module):
@@ -152,64 +173,88 @@ class Decoder(nn.Module):
 
         self.fc.weight.data.normal_()
 
-    def forward(self, X_encoded, y_prev):
+    def forward(self, X_encoded, y_prev, d_n, c_n, initial=True):
         """forward."""
-        # Initializing hidden state d_t=0 (d_n) with dimensions of h (x_encoded)
-        d_n = self._init_states(X_encoded)
-        # Initializing cell state s_t=0 (c_n) with dimensions of h (x_encoded)
-        c_n = self._init_states(X_encoded)
+        if initial:
+            # print("Initial prediction from history.")
+            # # Initializing hidden state d_t=0 (d_n) with dimensions of h (x_encoded)
+            # d_n = self._init_states(X_encoded)
+            # # Initializing cell state s_t=0 (c_n) with dimensions of h (x_encoded)
+            # c_n = self._init_states(X_encoded)
 
-        # t here denotes the subscript for Eqs (12 - 17)
-        # Cannot feed lstm cell d_{t-1} straight into d_{t},
-        # Need to combine lstm hidden cell d_{t-1} with temporal attention weights beta multiplied by h
-        # Must do this for each time step of RNN
-        for t in range(self.T - 1):
-            
-            # Equation 12 in the paper. To compute l^{i}_{t},
-            # where i is time index of encoded state (X_encoded)
-            # need to feed in hidden and cell states
-            # at t-1: d_{t-1}, s_{t-1} (d_n, c_n) with encoded state h (X_encoded)
-            # Computing all beta^{i} values at the same time
+            # # t here denotes the subscript for Eqs (12 - 17)
+            # # Cannot feed lstm cell d_{t-1} straight into d_{t},
+            # # Need to combine lstm hidden cell d_{t-1} with temporal attention weights beta multiplied by h
+            # # Must do this for each time step of RNN
+            for t in range(self.T - 1):
+                
+                # Equation 12 in the paper. To compute l^{i}_{t},
+                # where i is time index of encoded state (X_encoded)
+                # need to feed in hidden and cell states
+                # at t-1: d_{t-1}, s_{t-1} (d_n, c_n) with encoded state h (X_encoded)
+                # Computing all beta^{i} values at the same time
+                x = torch.cat((d_n.repeat(self.T - 1, 1, 1).permute(1, 0, 2),
+                            c_n.repeat(self.T - 1, 1, 1).permute(1, 0, 2),
+                            X_encoded), dim=2)
+
+                # Computing Beta at time t, using the concatenation of hidden states, cell states
+                # and encoded states
+                # self.attn_layer computes l^{i}_{t} in Eq. (12)
+                # softmax computes beta^{i}_{t} in Eq. (13)
+                beta = F.softmax(self.attn_layer(
+                    x.view(-1, 2 * self.decoder_num_hidden + self.encoder_num_hidden)).view(-1, self.T - 1), dim=1)
+
+                # Eqn. 14: compute context vector at time t
+                # batch_size * encoder_hidden_size
+                # c_{t-1} is computed here via Eq. (14)
+                context = torch.bmm(beta.unsqueeze(1), X_encoded)[:, 0, :]
+
+                if t < self.T - 1:
+                    # batch_size * 1
+                    # Eqn. 15: Feed c_{t-1} (context) with y_{t-1} (y_previous) into Linear layer
+                    # context weighted output: y_tilde
+                    # dim = encoder_dimensions + 1 (y_previous)
+                    y_tilde = self.fc(
+                        torch.cat((context, y_prev[:, t].unsqueeze(1)), dim=1))
+
+                    # Eqn. 16 as well as 17-21: LSTM equations
+                    self.lstm_layer.flatten_parameters()
+                    # Feed in d_{t-1} (d_n), s_{t-1} (c_n) and context-weighted y_{t-1} into LSTM to get d_{t}
+                    _, final_states = self.lstm_layer(
+                        y_tilde.unsqueeze(0), (d_n, c_n))
+
+                    # This computes d_{t} Eq 21 of LSTM
+                    d_n = final_states[0]  # 1 * batch_size * decoder_num_hidden
+                    c_n = final_states[1]  # 1 * batch_size * decoder_num_hidden
+
+            # Eqn. 22: final output
+            # dn[0] = d_n.squeeze(0) to get batch_size x decoder_dim
+            # context is batch_size x encoder_dim
+            y_pred = self.fc_final(torch.cat((d_n[0], context), dim=1))
+        
+        else:
+            # Predicting future values using y_pred, d_n, c_n
             x = torch.cat((d_n.repeat(self.T - 1, 1, 1).permute(1, 0, 2),
-                           c_n.repeat(self.T - 1, 1, 1).permute(1, 0, 2),
-                           X_encoded), dim=2)
+                        c_n.repeat(self.T - 1, 1, 1).permute(1, 0, 2),
+                        X_encoded), dim=2)
 
-            # Computing Beta at time t, using the concatenation of hidden states, cell states
-            # and encoded states
-            # self.attn_layer computes l^{i}_{t} in Eq. (12)
-            # softmax computes beta^{i}_{t} in Eq. (13)
             beta = F.softmax(self.attn_layer(
                 x.view(-1, 2 * self.decoder_num_hidden + self.encoder_num_hidden)).view(-1, self.T - 1), dim=1)
 
-            # Eqn. 14: compute context vector at time t
-            # batch_size * encoder_hidden_size
-            # c_{t-1} is computed here via Eq. (14)
             context = torch.bmm(beta.unsqueeze(1), X_encoded)[:, 0, :]
 
-            if t < self.T - 1:
-                # batch_size * 1
-                # Eqn. 15: Feed c_{t-1} (context) with y_{t-1} (y_previous) into Linear layer
-                # context weighted output: y_tilde
-                # dim = encoder_dimensions + 1 (y_previous)
-                y_tilde = self.fc(
-                    torch.cat((context, y_prev[:, t].unsqueeze(1)), dim=1))
+            y_tilde = self.fc(torch.cat((context, y_prev[:, 0].unsqueeze(1)), dim=1))
 
-                # Eqn. 16 as well as 17-21: LSTM equations
-                self.lstm_layer.flatten_parameters()
-                # Feed in d_{t-1} (d_n), s_{t-1} (c_n) and context-weighted y_{t-1} into LSTM to get d_{t}
-                _, final_states = self.lstm_layer(
-                    y_tilde.unsqueeze(0), (d_n, c_n))
+            self.lstm_layer.flatten_parameters()
+            _, final_states = self.lstm_layer(y_tilde.unsqueeze(0), (d_n, c_n))
 
-                # This computes d_{t} Eq 21 of LSTM
-                d_n = final_states[0]  # 1 * batch_size * decoder_num_hidden
-                c_n = final_states[1]  # 1 * batch_size * decoder_num_hidden
+            d_n = final_states[0]
+            c_n = final_states[1]
 
-        # Eqn. 22: final output
-        # dn[0] = d_n.squeeze(0) to get batch_size x decoder_dim
-        # context is batch_size x encoder_dim
-        y_pred = self.fc_final(torch.cat((d_n[0], context), dim=1))
+            y_pred = self.fc_final(torch.cat((d_n[0], context), dim=1))
 
-        return y_pred
+        return y_pred, d_n, c_n
+
 
     def _init_states(self, X):
         """Initialize all 0 hidden states and cell states for encoder."""
@@ -221,7 +266,7 @@ class Decoder(nn.Module):
 class DA_RNN(nn.Module):
     """Dual-Stage Attention-Based Recurrent Neural Network."""
 
-    def __init__(self, X, y, T,
+    def __init__(self, X, y, T, T_predict,
                  encoder_num_hidden,
                  decoder_num_hidden,
                  batch_size,
@@ -238,6 +283,8 @@ class DA_RNN(nn.Module):
         self.shuffle = False
         self.epochs = epochs
         self.T = T
+        self.T_predict = T_predict
+
         self.X = X
         self.y = y
 
@@ -291,16 +338,21 @@ class DA_RNN(nn.Module):
             while (idx < self.train_timesteps):
                 # get the indices of X_train
                 indices = ref_idx[idx:(idx + self.batch_size)]
-                # x = np.zeros((self.T - 1, len(indices), self.input_size))
-                x = np.zeros((len(indices), self.T - 1, self.input_size))
-                y_prev = np.zeros((len(indices), self.T - 1))
-                y_gt = self.y[indices + self.T]
+                x = np.zeros((len(indices), T - 1, self.input_size))
+                y_prev = np.zeros((len(indices), T - 1))
+
+                # Modify y_gt
+                # Ground truth must have shape (batch_size, T_predict): indices + self.T -1: indices + self.T -1 + T_predict
+                y_gt = np.zeros((len(indices), self.T_predict))
+
+                # Defines ground truth for only minute ahead forecasting                
+                # y_gt = self.y[indices + self.T - 1]
 
                 # format x into 3D tensor
                 for bs in range(len(indices)):
-                    x[bs, :, :] = self.X[indices[bs]:(
-                        indices[bs] + self.T - 1), :]
+                    x[bs, :, :] = self.X[indices[bs]:(indices[bs] + self.T - 1), :]
                     y_prev[bs, :] = self.y[indices[bs]: (indices[bs] + self.T - 1)]
+                    y_gt[bs, :] = self.y[indices[bs] + T - 1: indices[bs] + T - 1 + self.T_predict]
 
                 loss = self.train_forward(x, y_prev, y_gt)
                 self.iter_losses[int(
@@ -323,35 +375,63 @@ class DA_RNN(nn.Module):
                       " Loss: ", self.epoch_losses[epoch])
 
             if epoch % 10 == 0:
+                # NEED TO MODIFY PLOTS IF FORECATING N_STEPS AHEAD
                 y_train_pred = self.test(on_train=True)
                 y_test_pred = self.test(on_train=False)
-                y_pred = np.concatenate((y_train_pred, y_test_pred))
+
+                # y_pred = np.concatenate((y_train_pred, y_test_pred))
                 plt.ioff()
                 plt.figure()
                 plt.plot(range(1, 1 + len(self.y)), self.y, label="True")
-                plt.plot(range(self.T, len(y_train_pred) + self.T),
-                         y_train_pred, label='Predicted - Train')
-                plt.plot(range(self.T + len(y_train_pred), len(self.y) + 1),
-                         y_test_pred, label='Predicted - Test')
-                plt.legend(loc='upper left')
+
+                for t1 in range(len(y_train_pred)):
+                    if t1 % self.T_predict == 0:
+                        x_values = [t1 + i for i in range(self.T, self.T + self.T_predict)]
+                        plt.plot(x_values, y_train_pred[t1], label='Predicted - Train')
+
+                for t2 in range(len(y_test_pred)):
+                    if t2 % self.T_predict == 0:
+                        x_values = [t2 + i for i in range(self.train_timesteps, self.train_timesteps + self.T_predict)]
+                        plt.plot(x_values, y_test_pred[t2], label='Predicted - Test')
+
+                # plt.legend(loc='upper left')
                 plt.show()
 
     def train_forward(self, X, y_prev, y_gt):
         """Forward pass."""
+        # set losses to zero
+        loss = 0
+
         # zero gradients
         self.encoder_optimizer.zero_grad()
         self.decoder_optimizer.zero_grad()
 
         input_weighted, input_encoded = self.Encoder(
             Variable(torch.from_numpy(X).type(torch.FloatTensor).to(self.device)))
-        y_pred = self.Decoder(input_encoded, Variable(
-            torch.from_numpy(y_prev).type(torch.FloatTensor).to(self.device)))
+        
+        d_n = self.Decoder._init_states(input_encoded)
+        c_n = self.Decoder._init_states(input_encoded)
 
-        y_true = Variable(torch.from_numpy(
-            y_gt).type(torch.FloatTensor).to(self.device))
+        y_prev = Variable(torch.from_numpy(y_prev).type(torch.FloatTensor).to(self.device))
 
-        y_true = y_true.view(-1, 1)
-        loss = self.criterion(y_pred, y_true)
+        # Put below in for loop range(0, T_predict).
+        # Need to check code below.
+        for t in range(self.T_predict):
+            if t == 0:
+                y_pred, d_n, c_n = self.Decoder(input_encoded, y_prev, d_n, c_n, initial=True)
+                    
+            else:
+                y_pred, d_n, c_n = self.Decoder(input_encoded, y_prev, d_n, c_n, initial=False)
+
+            y_true = Variable(torch.from_numpy(
+                y_gt[:, t]).type(torch.FloatTensor).to(self.device))
+
+            y_true = y_true.view(-1, 1)
+            loss += self.criterion(y_pred, y_true)
+
+            y_prev = y_pred.detach()
+        
+        # Belongs outside of the for loop        
         loss.backward()
 
         self.encoder_optimizer.step()
@@ -363,13 +443,15 @@ class DA_RNN(nn.Module):
         """Prediction."""
 
         if on_train:
-            y_pred = np.zeros(self.train_timesteps - self.T + 1)
+            y_prediction = np.zeros((self.train_timesteps - T + 1, self.T_predict))
+
         else:
-            y_pred = np.zeros(self.X.shape[0] - self.train_timesteps)
+            y_prediction = np.zeros((self.X.shape[0] - self.train_timesteps, self.T_predict))
 
         i = 0
-        while i < len(y_pred):
-            batch_idx = np.array(range(len(y_pred)))[i: (i + self.batch_size)]
+
+        while i < len(y_prediction):
+            batch_idx = np.array(range(len(y_prediction)))[i: (i + self.batch_size)]
             X = np.zeros((len(batch_idx), self.T - 1, self.X.shape[1]))
             y_history = np.zeros((len(batch_idx), self.T - 1))
 
@@ -384,13 +466,26 @@ class DA_RNN(nn.Module):
                         batch_idx[j] + self.train_timesteps - self.T, batch_idx[j] + self.train_timesteps - 1), :]
                     y_history[j, :] = self.y[range(
                         batch_idx[j] + self.train_timesteps - self.T, batch_idx[j] + self.train_timesteps - 1)]
-
+            
             y_history = Variable(torch.from_numpy(
                 y_history).type(torch.FloatTensor).to(self.device))
+            
             _, input_encoded = self.Encoder(
                 Variable(torch.from_numpy(X).type(torch.FloatTensor).to(self.device)))
-            y_pred[i:(i + self.batch_size)] = self.Decoder(input_encoded,
-                                                           y_history).cpu().data.numpy()[:, 0]
+            
+            d_n = self.Decoder._init_states(input_encoded)
+            c_n = self.Decoder._init_states(input_encoded)
+
+            for t in range(self.T_predict):
+                if t == 0:
+                    y_pred, d_n, c_n = self.Decoder(input_encoded, y_history, d_n, c_n, initial=True)
+
+                else:
+                    y_pred, d_n, c_n = self.Decoder(input_encoded, y_history, d_n, c_n, initial=False)
+                
+                y_history = y_pred
+                y_prediction[i:(i + self.batch_size), t] = y_history.cpu().data.numpy()[:, 0]
+                
             i += self.batch_size
 
-        return y_pred
+        return y_prediction
