@@ -443,14 +443,10 @@ class DA_RNN(nn.Module):
         """Prediction."""
 
         if on_train:
-            # y_pred = np.zeros(self.train_timesteps - self.T + 1)
             y_prediction = np.zeros((self.train_timesteps - T + 1, self.T_predict))
-            # x_values = np.zeros((len(y_prediction), self.T_predict))
 
         else:
-            # y_pred = np.zeros(self.X.shape[0] - self.train_timesteps)
             y_prediction = np.zeros((self.X.shape[0] - self.train_timesteps, self.T_predict))
-            # x_values = np.zeros((len(y_prediction), self.T_predict))
 
         i = 0
 
@@ -490,14 +486,6 @@ class DA_RNN(nn.Module):
                 y_history = y_pred
                 y_prediction[i:(i + self.batch_size), t] = y_history.cpu().data.numpy()[:, 0]
                 
-                # if on_train:
-                #     for k in range(i, i + self.batch_size):
-                #         x_values[k, t] = T + k + t
-
-                # else:
-                #     for k in range(i, i + self.batch_size):
-                #         x_values[k, t] = self.train_timesteps + k + t
-
             i += self.batch_size
 
         return y_prediction
