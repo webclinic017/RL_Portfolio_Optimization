@@ -11,7 +11,6 @@ References:
     [2] Chandler Zuo. "A PyTorch Example to Use RNN for Financial Prediction" (2017).
 """
 
-from re import T
 import matplotlib.pyplot as plt
 
 import torch
@@ -255,7 +254,6 @@ class Decoder(nn.Module):
 
         return y_pred, d_n, c_n
 
-
     def _init_states(self, X):
         """Initialize all 0 hidden states and cell states for encoder."""
         # hidden state and cell state [num_layers*num_directions, batch_size, hidden_size]
@@ -338,11 +336,12 @@ class DA_RNN(nn.Module):
             while (idx < self.train_timesteps):
                 # get the indices of X_train
                 indices = ref_idx[idx:(idx + self.batch_size)]
-                x = np.zeros((len(indices), T - 1, self.input_size))
-                y_prev = np.zeros((len(indices), T - 1))
+                x = np.zeros((len(indices), self.T - 1, self.input_size))
+                y_prev = np.zeros((len(indices), self.T - 1))
 
                 # Modify y_gt
-                # Ground truth must have shape (batch_size, T_predict): indices + self.T -1: indices + self.T -1 + T_predict
+                # Ground truth must have shape
+                # (batch_size, T_predict): indices + self.T -1: indices + self.T -1 + T_predict
                 y_gt = np.zeros((len(indices), self.T_predict))
 
                 # Defines ground truth for only minute ahead forecasting                
@@ -352,7 +351,7 @@ class DA_RNN(nn.Module):
                 for bs in range(len(indices)):
                     x[bs, :, :] = self.X[indices[bs]:(indices[bs] + self.T - 1), :]
                     y_prev[bs, :] = self.y[indices[bs]: (indices[bs] + self.T - 1)]
-                    y_gt[bs, :] = self.y[indices[bs] + T - 1: indices[bs] + T - 1 + self.T_predict]
+                    y_gt[bs, :] = self.y[indices[bs] + self.T - 1: indices[bs] + self.T - 1 + self.T_predict]
 
                 loss = self.train_forward(x, y_prev, y_gt)
                 self.iter_losses[int(
@@ -379,23 +378,40 @@ class DA_RNN(nn.Module):
                 y_train_pred = self.test(on_train=True)
                 y_test_pred = self.test(on_train=False)
 
+                # print("y_train_pred shape = " + str(y_train_pred.shape))
+                # print("y_test_pred shape = " + str(y_test_pred.shape))
+
                 # y_pred = np.concatenate((y_train_pred, y_test_pred))
                 plt.ioff()
                 plt.figure()
                 plt.plot(range(1, 1 + len(self.y)), self.y, label="True")
 
-                for t1 in range(len(y_train_pred)):
-                    if t1 % self.T_predict == 0:
-                        x_values = [t1 + i for i in range(self.T, self.T + self.T_predict)]
-                        plt.plot(x_values, y_train_pred[t1], label='Predicted - Train')
+                if y_train_pred.shape[1] == 1:
 
-                for t2 in range(len(y_test_pred)):
-                    if t2 % self.T_predict == 0:
-                        x_values = [t2 + i for i in range(self.train_timesteps, self.train_timesteps + self.T_predict)]
-                        plt.plot(x_values, y_test_pred[t2], label='Predicted - Test')
+                    plt.plot(range(self.T, len(y_train_pred) + self.T),
+                            y_train_pred, label='Predicted - Train')
+                    plt.plot(range(self.T + len(y_train_pred), len(self.y) + 1),
+                            y_test_pred, label='Predicted - Test')
+                    plt.legend(loc='upper left')
+                    # plt.show()
 
-                # plt.legend(loc='upper left')
-                plt.show()
+                else:
+
+                    for t1 in range(len(y_train_pred)):
+                        if t1 % self.T_predict == 0:
+                            x_values = [t1 + i for i in range(self.T, self.T + self.T_predict)]
+                            plt.plot(x_values, y_train_pred[t1], label='Predicted - Train')
+
+                    for t2 in range(len(y_test_pred)):
+                        if t2 % self.T_predict == 0:
+                            x_values = [t2 + i for i in range(self.train_timesteps, self.train_timesteps + self.T_predict)]
+                            plt.plot(x_values, y_test_pred[t2], label='Predicted - Test')
+
+                    # plt.legend(loc='upper left')
+                    # plt.show()
+                
+                plt.title("Epochs: {}, N iters: {}, Loss: {}".format(epoch, n_iter, self.epoch_losses[epoch]))
+                plt.savefig("model_epoch_{}_iter_{}.png".format(epoch, n_iter))
 
     def train_forward(self, X, y_prev, y_gt):
         """Forward pass."""
@@ -443,7 +459,7 @@ class DA_RNN(nn.Module):
         """Prediction."""
 
         if on_train:
-            y_prediction = np.zeros((self.train_timesteps - T + 1, self.T_predict))
+            y_prediction = np.zeros((self.train_timesteps - self.T + 1, self.T_predict))
 
         else:
             y_prediction = np.zeros((self.X.shape[0] - self.train_timesteps, self.T_predict))
@@ -451,7 +467,7 @@ class DA_RNN(nn.Module):
         i = 0
 
         while i < len(y_prediction):
-            batch_idx = np.array(range(len(y_prediction)))[i: (i + self.batch_size)]
+            batch_idx = np.array(range(len(y_prediction)))[i:(i + self.batch_size)]
             X = np.zeros((len(batch_idx), self.T - 1, self.X.shape[1]))
             y_history = np.zeros((len(batch_idx), self.T - 1))
 
