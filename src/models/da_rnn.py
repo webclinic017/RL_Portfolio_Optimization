@@ -12,16 +12,13 @@ References:
 """
 
 import matplotlib.pyplot as plt
-
-import torch
 import numpy as np
-
+import pandas as pd
+import torch
+import torch.nn.functional as F
 from torch import nn
 from torch import optim
-
 from torch.autograd import Variable
-import torch.nn.functional as F
-import pandas as pd
 
 
 def read_data(input_path, debug=True):
@@ -333,7 +330,7 @@ class DA_RNN(nn.Module):
 
             idx = 0
 
-            while (idx < self.train_timesteps):
+            while idx < self.train_timesteps:
                 # get the indices of X_train
                 indices = ref_idx[idx:(idx + self.batch_size)]
                 x = np.zeros((len(indices), self.T - 1, self.input_size))
@@ -374,7 +371,7 @@ class DA_RNN(nn.Module):
                       " Loss: ", self.epoch_losses[epoch])
 
             if epoch % 10 == 0:
-                # NEED TO MODIFY PLOTS IF FORECATING N_STEPS AHEAD
+                # NEED TO MODIFY PLOTS IF FORECASTING N_STEPS AHEAD
                 y_train_pred = self.test(on_train=True)
                 y_test_pred = self.test(on_train=False)
 
