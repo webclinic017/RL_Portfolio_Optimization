@@ -5,12 +5,14 @@ pandas
 scikit-learn
 # stable-baselines3[extra]
 torch
-gym
+# gym
 joblib
 pytest
 setuptools
 wheel
 ipython
+notebook
+
 
 # Installing scraper, requests, and AWS dependencies
 beautifulsoup4
