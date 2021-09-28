@@ -36,10 +36,12 @@ class S3Bucket(object):
         print("Pushing {} to {}".format(file_name, self.s3_name))
         self.s3.Bucket(self.s3_name).upload_file(Filename=data_path + file_name, Key=file_name)
 
-    def load_from_s3(self, file_name):
+    def load_from_s3(self, file_name, index=False):
         obj = self.s3.Bucket(self.s3_name).Object(file_name).get()
-        df = pd.read_csv(obj['Body'], index_col=0)
-
+        if index:
+            df = pd.read_csv(obj['Body'])
+        else:
+            df = pd.read_csv(obj['Body'], index_col=0)
         return df
 
 
