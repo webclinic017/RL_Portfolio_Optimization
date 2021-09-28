@@ -11,7 +11,7 @@ pytest
 setuptools
 wheel
 ipython
-notebook
+# notebook
 
 
 # Installing scraper, requests, and AWS dependencies
