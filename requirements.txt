@@ -12,6 +12,7 @@ setuptools
 wheel
 ipython
 # notebook
+pandas-market-calendars
 
 
 # Installing scraper, requests, and AWS dependencies
