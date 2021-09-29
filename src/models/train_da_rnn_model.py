@@ -1,9 +1,10 @@
 import argparse
 import time
+
 import numpy as np
 
-from src.models.da_rnn import DA_RNN
-from src.data.make_dataset import S3Bucket
+from da_rnn import DA_RNN
+from s3_bucket import S3Bucket
 
 
 def train_da_rnn(batch_size,
