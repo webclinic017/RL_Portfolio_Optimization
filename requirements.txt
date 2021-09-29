@@ -13,6 +13,8 @@ wheel
 ipython
 # notebook
 pandas-market-calendars
+matplotlib
+sagemaker
 
 
 # Installing scraper, requests, and AWS dependencies
