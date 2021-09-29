@@ -2,7 +2,7 @@ import argparse
 import time
 import numpy as np
 
-from da_rnn import DA_RNN
+from src.models.da_rnn import DA_RNN
 from src.data.make_dataset import S3Bucket
 
 
