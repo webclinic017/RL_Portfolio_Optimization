@@ -1,5 +1,6 @@
 import boto3
 import pandas as pd
+import os
 
 os.environ["AWS_DEFAULT_REGION"] = 'us-east-1'
 os.environ["AWS_ACCESS_KEY_ID"] = 'AKIAZURDHJ7XTWF2Q55F'
