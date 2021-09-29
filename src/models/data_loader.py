@@ -1,8 +1,10 @@
-from src.data.make_dataset import S3Bucket
-import pandas as pd
-import numpy as np
-from src.models.io_handling import pickle_out_data
 import os
+
+import numpy as np
+import pandas as pd
+
+from src.models.io_handling import pickle_out_data
+from src.models.s3_bucket import S3Bucket
 
 s3_bucket = S3Bucket()
 month_range = pd.date_range(start='2019-09-01', end='2021-08-01', freq='MS').strftime("%Y-%m-%d")
