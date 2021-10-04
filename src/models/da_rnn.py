@@ -415,6 +415,7 @@ class DA_RNN(nn.Module):
                     # plt.show()
                 
                 plt.title("Epochs: {}, N iters: {}, Loss: {}".format(epoch, n_iter, self.epoch_losses[epoch]))
+                print("Saving and pushing figures to S3 Bucket.")
                 plt.savefig(os.path.join(self.output_dir, "model_epoch_{}_iter_{}.png".format(epoch, n_iter)))
                 self.s3_bucket.push_to_s3(self.output_dir, "model_epoch_{}_iter_{}.png".format(epoch, n_iter))
 
