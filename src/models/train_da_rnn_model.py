@@ -5,7 +5,8 @@ import numpy as np
 
 from da_rnn import DA_RNN
 from s3_bucket import S3Bucket
-
+import torch
+import os
 
 def train_da_rnn(batch_size,
                  encoder_num_hidden,
@@ -20,7 +21,7 @@ def train_da_rnn(batch_size,
 
     # Retrieve and pre-process data
     s3_bucket = S3Bucket()
-    data = s3_bucket.load_from_s3('nasdaq100_padding.csv', index=True)
+    data = s3_bucket.load_from_s3('test_model/nasdaq100_padding.csv', index=True)
     X = data.loc[:, [x for x in data.columns.tolist() if x != 'NDX']].to_numpy()
     y = np.array(data.NDX)
 
@@ -40,6 +41,9 @@ def train_da_rnn(batch_size,
     da_rnn.train()
 
     end = time.time()
+
+    model_dir = os.environ['SM_MODEL_DIR']
+    torch.save(da_rnn.state_dict(), os.path.join(model_dir, 'checkpoint.pth'))
 
     # Record final training loss
     loss = da_rnn.epoch_losses[-1]
