@@ -19,6 +19,8 @@ import torch.nn.functional as F
 from torch import nn
 from torch import optim
 from torch.autograd import Variable
+from s3_bucket import S3Bucket
+import os
 
 
 def read_data(input_path, debug=True):
@@ -282,6 +284,9 @@ class DA_RNN(nn.Module):
         self.T = T
         self.T_predict = T_predict
 
+        self.s3_bucket = S3Bucket()
+        self.output_dir = os.environ['SM_OUTPUT_DATA_DIR']
+
         self.X = X
         self.y = y
 
@@ -410,7 +415,9 @@ class DA_RNN(nn.Module):
                     # plt.show()
                 
                 plt.title("Epochs: {}, N iters: {}, Loss: {}".format(epoch, n_iter, self.epoch_losses[epoch]))
-                plt.savefig("model_epoch_{}_iter_{}.png".format(epoch, n_iter))
+                plt.savefig(os.path.join(self.output_dir, "model_epoch_{}_iter_{}.png".format(epoch, n_iter)))
+                self.s3_bucket.push_to_s3(self.output_dir, "model_epoch_{}_iter_{}.png".format(epoch, n_iter))
+
 
     def train_forward(self, X, y_prev, y_gt):
         """Forward pass."""
