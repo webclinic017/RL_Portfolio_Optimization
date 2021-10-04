@@ -285,7 +285,7 @@ class DA_RNN(nn.Module):
         self.T_predict = T_predict
 
         self.s3_bucket = S3Bucket()
-        self.output_dir = os.environ['SM_OUTPUT_DATA_DIR']
+        self.output_dir = os.environ['SM_OUTPUT_DATA_DIR'] + "/"
 
         self.X = X
         self.y = y
