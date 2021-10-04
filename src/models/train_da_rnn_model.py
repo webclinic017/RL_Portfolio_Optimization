@@ -42,7 +42,7 @@ def train_da_rnn(batch_size,
 
     end = time.time()
 
-    model_dir = os.environ['SM_MODEL_DIR']
+    model_dir = os.environ['SM_MODEL_DIR'] + "/"
     torch.save(da_rnn.state_dict(), os.path.join(model_dir, 'checkpoint.pth'))
 
     # Record final training loss
