@@ -422,6 +422,8 @@ class DA_RNN(nn.Module):
                     # plt.legend(loc='upper left')
                     # plt.show()
                 
+                plt.xlabel("Time (minutes)")
+                plt.ylabel("Nasdaq-100 (NDX) ($)")
                 plt.title("Epochs: {}, N iters: {}, Loss: {}".format(epoch, n_iter, self.epoch_losses[epoch]))
                 print("Saving and pushing figures to S3 Bucket.")
                 plt.savefig(os.path.join(self.output_dir, "model_epoch_{}_iter_{}.png".format(epoch, n_iter)))
