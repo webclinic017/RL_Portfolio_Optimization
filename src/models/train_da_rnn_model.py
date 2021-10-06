@@ -48,8 +48,8 @@ def train_da_rnn(batch_size,
     y_pred = da_rnn.test()
 
     fig = plt.figure()
-    plt.plot(y_pred, label='Predicted')
     plt.plot(da_rnn.y[da_rnn.train_timesteps:], label="True")
+    plt.plot(y_pred, label='Predicted')
     plt.legend(loc='upper left')
     plt.xlabel("Time (minutes)")
     plt.ylabel("Nasdaq-100 (NDX) ($)")
