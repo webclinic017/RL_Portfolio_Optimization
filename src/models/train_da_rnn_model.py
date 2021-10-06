@@ -7,6 +7,7 @@ from da_rnn import DA_RNN
 from s3_bucket import S3Bucket
 import torch
 import os
+import matplotlib.pyplot as plt
 
 def train_da_rnn(batch_size,
                  encoder_num_hidden,
@@ -14,7 +15,8 @@ def train_da_rnn(batch_size,
                  T_predict,
                  learning_rate,
                  epochs,
-                 parallel):
+                 parallel,
+                 sagemaker=True):
 
     """DA RNN model"""
     start = time.time()
@@ -35,15 +37,39 @@ def train_da_rnn(batch_size,
                     batch_size=batch_size,
                     learning_rate=learning_rate,
                     epochs=epochs,
-                    parallel=parallel)
+                    parallel=parallel,
+                    sagemaker=sagemaker)
     
     # Train model
     da_rnn.train()
 
+    # Test model
+    # Prediction
+    y_pred = da_rnn.test()
+    plt.plot(y_pred, label='Predicted')
+    plt.plot(da_rnn.y[da_rnn.train_timesteps:], label="True")
+    plt.legend(loc='upper left')
+
+    # Define output directory
+    if sagemaker:
+        output_dir = os.environ['SM_OUTPUT_DATA_DIR'] + "/"
+    else:
+        output_dir = "./"
+
+    print("Saving and pushing figures to S3 Bucket.")
+    plt.savefig(os.path.join(output_dir, "prediction.png"))
+    s3_bucket.push_to_s3(output_dir, "prediction.png")
+
     end = time.time()
 
-    model_dir = os.environ['SM_MODEL_DIR'] + "/"
-    torch.save(da_rnn.state_dict(), os.path.join(model_dir, 'checkpoint.pth'))
+    # Define model directory
+    if sagemaker:
+        model_dir = os.environ['SM_MODEL_DIR'] + "/"
+    else:
+        model_dir = "./"
+
+    torch.save(da_rnn.state_dict(), os.path.join(model_dir, 'model_checkpoint.pth'))
+    s3_bucket.push_to_s3(model_dir, "model_checkpoint.pth")
 
     # Record final training loss
     loss = da_rnn.epoch_losses[-1]
@@ -87,6 +113,7 @@ if __name__ == "__main__":
                  T_predict=args.T_predict,
                  learning_rate=args.learning_rate,
                  epochs=args.epochs,
-                 parallel=args.parallel)
+                 parallel=args.parallel,
+                 sagemaker=False)
 
     print('Done.')
