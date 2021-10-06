@@ -271,7 +271,9 @@ class DA_RNN(nn.Module):
                  batch_size,
                  learning_rate,
                  epochs,
-                 parallel=False):
+                 parallel=False,
+                 sagemaker=True):
+
         """initialization."""
         super(DA_RNN, self).__init__()
         self.encoder_num_hidden = encoder_num_hidden
@@ -285,7 +287,11 @@ class DA_RNN(nn.Module):
         self.T_predict = T_predict
 
         self.s3_bucket = S3Bucket()
-        self.output_dir = os.environ['SM_OUTPUT_DATA_DIR'] + "/"
+        
+        if sagemaker:
+            self.output_dir = os.environ['SM_OUTPUT_DATA_DIR'] + "/"
+        else:
+            self.output_dir = "./"
 
         self.X = X
         self.y = y
@@ -394,6 +400,8 @@ class DA_RNN(nn.Module):
 
                     plt.plot(range(self.T, len(y_train_pred) + self.T),
                             y_train_pred, label='Predicted - Train')
+                    
+                    plt.axvline(x=self.T + len(y_train_pred), linestyle='--', color='red')
                     plt.plot(range(self.T + len(y_train_pred), len(self.y) + 1),
                             y_test_pred, label='Predicted - Test')
                     plt.legend(loc='upper left')
