@@ -114,6 +114,6 @@ if __name__ == "__main__":
                  learning_rate=args.learning_rate,
                  epochs=args.epochs,
                  parallel=args.parallel,
-                 sagemaker=False)
+                 sagemaker=True)
 
     print('Done.')
