@@ -18,9 +18,9 @@ class S3Bucket(object):
         )
         self.s3_name = 'rganti-qqq-data'
 
-    def push_to_s3(self, data_path, file_name):
-        print("Pushing {} to {}".format(file_name, self.s3_name))
-        self.s3.Bucket(self.s3_name).upload_file(Filename=data_path + file_name, Key=file_name)
+    def push_to_s3(self, input_path, output_path):
+        print("Pushing {} to {}".format(input_path, self.s3_name))
+        self.s3.Bucket(self.s3_name).upload_file(Filename=input_path, Key=output_path)
 
     def load_from_s3(self, file_name, index=False):
         obj = self.s3.Bucket(self.s3_name).Object(file_name).get()
