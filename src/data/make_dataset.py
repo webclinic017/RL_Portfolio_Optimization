@@ -126,7 +126,7 @@ class GetData(object):
             pickle_out_data(self.missing_values, self.data_path + "timestamps_missed_{}".format(month_begin))
             file_name = 'data_{}.csv'.format(month_begin)
             df_holdings_month.to_csv(self.data_path + file_name)
-            self.s3_bucket.push_to_s3(self.data_path, file_name)
+            self.s3_bucket.push_to_s3(self.data_path + file_name, "Data/" + file_name)
 
             self.missing_values = self.initialize_dictionary()
 
