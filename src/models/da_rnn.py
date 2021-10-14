@@ -19,6 +19,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch import optim
 from torch.autograd import Variable
+from torch.utils.data import Dataset, DataLoader
 from s3_bucket import S3Bucket
 import os
 
@@ -262,6 +263,23 @@ class Decoder(nn.Module):
         return Variable(X.data.new(1, X.size(0), self.decoder_num_hidden).zero_())
 
 
+class StockDataset(Dataset):
+
+    def __init__(self, x, y_prev, y_gt):
+        super().__init__()
+        self.x = x
+        self.y_prev = y_prev
+        self.y_gt = y_gt
+
+        self.n_samples = y_gt.shape[0]
+    
+    def __getitem__(self, index):
+        return self.x[index], self.y_prev[index], self.y_gt[index]
+
+    def __len__(self):
+        return self.n_samples
+
+
 class DA_RNN(nn.Module):
     """Dual-Stage Attention-Based Recurrent Neural Network."""
 
@@ -272,7 +290,8 @@ class DA_RNN(nn.Module):
                  learning_rate,
                  epochs,
                  parallel=False,
-                 sagemaker=True):
+                 sagemaker=True,
+                 old_data=True):
 
         """initialization."""
         super(DA_RNN, self).__init__()
@@ -285,6 +304,7 @@ class DA_RNN(nn.Module):
         self.epochs = epochs
         self.T = T
         self.T_predict = T_predict
+        self.old_data = old_data
 
         self.s3_bucket = S3Bucket()
         
@@ -300,9 +320,67 @@ class DA_RNN(nn.Module):
             'cuda:0' if torch.cuda.is_available() else 'cpu')
         print("==> Use accelerator: ", self.device)
 
-        self.Encoder = Encoder(input_size=X.shape[1],
-                               encoder_num_hidden=encoder_num_hidden,
-                               T=T).to(self.device)
+        # Old Data Set
+        if self.old_data:
+            self.train_timesteps = int(self.X.shape[0] * 0.7)
+            self.valid_timesteps = self.X.shape[0] - self.train_timesteps
+
+            self.y = self.y - np.mean(self.y[:self.train_timesteps])
+            self.input_size = self.X.shape[1]
+
+            # Training Set
+            x_train, y_prev_train, y_gt_train = self.pre_process_old_data()
+            self.train_dataset = StockDataset(x_train, y_prev_train, y_gt_train)
+            self.train_samples = len(self.train_dataset)
+            self.train_dataloader = DataLoader(dataset=self.train_dataset, batch_size=self.batch_size, shuffle=False)
+
+            # Validation Set
+            x_valid, y_prev_valid, y_gt_valid = self.pre_process_old_data(train=False)
+            self.valid_dataset = StockDataset(x_valid, y_prev_valid, y_gt_valid)
+            self.valid_samples = len(self.valid_dataset)
+            self.valid_dataloader = DataLoader(dataset=self.valid_dataset, batch_size=self.batch_size, shuffle=False)
+
+        else:
+            # Training Set
+            train_range = pd.date_range(start='2020-09-01', end='2021-07-01', freq='MS').strftime("%Y-%m-%d")
+            self.y_train = self.compute_y_total(train_range) 
+            y_mean = np.mean(self.y_train)
+            self.y_train = self.y_train - y_mean
+
+            x_train, y_prev_train, y_gt_train = self.pre_process_data(train_range, y_mean)
+
+            self.x_train = x_train
+            self.y_prev_train = y_prev_train
+            self.y_gt_train = y_gt_train
+
+            self.train_dataset = StockDataset(x_train, y_prev_train, y_gt_train)
+            self.train_samples = len(self.train_dataset)
+            self.train_dataloader = DataLoader(dataset=self.train_dataset, batch_size=self.batch_size, shuffle=False)
+
+            # Validation Set
+            valid_range = pd.date_range(start='2021-08-01', end='2021-08-01', freq='MS').strftime("%Y-%m-%d")
+            self.y_valid = self.compute_y_total(valid_range) - y_mean
+
+            x_valid, y_prev_valid, y_gt_valid = self.pre_process_data(valid_range, y_mean)
+
+            self.x_valid = x_valid
+            self.y_prev_valid = y_prev_valid
+            self.y_gt_valid = y_gt_valid
+
+            valid_timesteps = int(x_valid.shape[0] * 0.5)
+
+            self.valid_dataset = StockDataset(x_valid[:valid_timesteps], y_prev_valid[:valid_timesteps], y_gt_valid[:valid_timesteps])
+            self.valid_samples = len(self.valid_dataset)
+            self.valid_dataloader = DataLoader(dataset=self.valid_dataset, batch_size=self.batch_size, shuffle=False)
+
+            # Test Set
+            self.test_dataset = StockDataset(x_valid[valid_timesteps:], y_prev_valid[valid_timesteps:], y_gt_valid[valid_timesteps:])
+            self.test_dataloader = DataLoader(dataset=self.test_dataset, batch_size=self.batch_size, shuffle=False)
+            self.input_size = x_train.shape[2]
+        
+        self.Encoder = Encoder(input_size=self.input_size,
+                        encoder_num_hidden=encoder_num_hidden,
+                        T=T).to(self.device)
         self.Decoder = Decoder(encoder_num_hidden=encoder_num_hidden,
                                decoder_num_hidden=decoder_num_hidden,
                                T=T).to(self.device)
@@ -321,51 +399,124 @@ class DA_RNN(nn.Module):
                                                           self.Decoder.parameters()),
                                             lr=self.learning_rate)
 
-        # Training set
-        self.train_timesteps = int(self.X.shape[0] * 0.7)
-        self.y = self.y - np.mean(self.y[:self.train_timesteps])
-        self.input_size = self.X.shape[1]
+    
+    def pre_process_old_data(self, train=True):
+
+        if train:
+            x = np.zeros((self.train_timesteps, self.T - 1, self.input_size))
+            y_prev = np.zeros((self.train_timesteps, self.T - 1))
+            y_gt = np.zeros((self.train_timesteps, self.T_predict))
+
+            for bs in range(self.train_timesteps):
+                x[bs, :, :] = self.X[bs: (bs + self.T - 1), :]
+                y_prev[bs, :] = self.y[bs: (bs + self.T - 1)]
+                y_gt[bs, :] = self.y[bs + self.T - 1: bs + self.T - 1 + self.T_predict]
+
+        else:
+            x = np.zeros((self.valid_timesteps, self.T - 1, self.input_size))
+            y_prev = np.zeros((self.valid_timesteps, self.T - 1))
+            y_gt = np.zeros((self.valid_timesteps, self.T_predict))
+
+            start = self.train_timesteps - self.T
+
+            for bs in range(self.valid_timesteps):
+                x[bs, :, :] = self.X[bs + self.train_timesteps - self.T: (bs + self.train_timesteps - 1), :]
+                y_prev[bs, :] = self.y[bs + self.train_timesteps - self.T: (bs + self.train_timesteps - 1)]
+                y_gt[bs, :] = self.y[bs + self.train_timesteps - 1: bs + self.train_timesteps - 1 + self.T_predict]
+        
+        return x, y_prev, y_gt
+
+    
+    def compute_y_total(self, month_range):
+        y_total = np.array([])
+        for m in range(len(month_range)):
+            month_begin = month_range[m]
+            data = self.s3_bucket.load_from_s3("Data/data_{}.csv".format(month_begin))
+            y = np.array(data['QQQ'])
+            y_total = np.append(y_total, y)
+        
+        return y_total
+
+    def pre_process_data(self, month_range, y_mean):
+        # Load month data into dataframe and loop through each day creating the x, y_prev, and y_gt arrays
+
+        for m in range(len(month_range)):
+            month_begin = month_range[m]
+            print("Month: " + str(month_begin))
+
+            data = self.s3_bucket.load_from_s3("Data/data_{}.csv".format(month_begin))
+            day_indices = np.unique(data.index)
+            day_length = data.loc[0].shape[0]
+            input_size = data.loc[0].shape[1] - 3
+
+            ref_idx = np.array(range(day_length - self.T))
+
+            x_month = np.zeros((len(ref_idx) * len(day_indices), self.T - 1, input_size))
+            y_prev_month = np.zeros((len(ref_idx) * len(day_indices), self.T - 1))
+            y_gt_month = np.zeros((len(ref_idx) * len(day_indices), self.T_predict))
+
+            for i in day_indices:
+                data_day = data.loc[i]
+                X = data_day.loc[:, [x for x in data_day.columns.tolist() if x != 'QQQ' and x != 'Date' and x != 'Date Time']].to_numpy()
+                y = np.array(data_day['QQQ']) - y_mean
+
+                x = np.zeros((len(ref_idx), self.T - 1, input_size))
+                y_prev = np.zeros((len(ref_idx), self.T - 1))
+                y_gt = np.zeros((len(ref_idx), self.T_predict))
+
+                # format x into 3D tensor
+                for bs in range(len(ref_idx)):
+                    x[bs, :, :] = X[ref_idx[bs]:(ref_idx[bs] + self.T - 1), :]
+                    y_prev[bs, :] = y[ref_idx[bs]:(ref_idx[bs] + self.T - 1)]
+                    y_gt[bs, :] = y[ref_idx[bs] + self.T - 1: ref_idx[bs] + self.T - 1 + self.T_predict]
+
+                x_month[len(ref_idx) * i:len(ref_idx) * (i+1)] = x
+                y_prev_month[len(ref_idx) * i:len(ref_idx) * (i+1)] = y_prev
+                y_gt_month[len(ref_idx) * i:len(ref_idx) * (i+1)] = y_gt
+
+            print(f'x_month shape: {x_month.shape}')
+            print(f'y_prev_month shape: {y_prev_month.shape}')
+            print(f'y_gt_month shape: {y_gt_month.shape}')
+            
+            if m == 0:
+                x_year = x_month
+                y_prev_year = y_prev_month
+                y_gt_year = y_gt_month
+            
+            else:
+                x_year = np.concatenate((x_year, x_month))
+                y_prev_year = np.concatenate((y_prev_year, y_prev_month))
+                y_gt_year = np.concatenate((y_gt_year, y_gt_month))
+    
+        return x_year, y_prev_year, y_gt_year
 
     def train(self):
+        
         """Training process."""
+
         iter_per_epoch = int(
-            np.ceil(self.train_timesteps * 1. / self.batch_size))
+            np.ceil(self.train_samples * 1. / self.batch_size))
         self.iter_losses = np.zeros(self.epochs * iter_per_epoch)
         self.epoch_losses = np.zeros(self.epochs)
+
+        valid_iter_per_epoch = int(
+            np.ceil(self.valid_samples * 1. / self.batch_size))
+        self.valid_iter_losses = np.zeros(self.epochs * valid_iter_per_epoch)
+        self.valid_epoch_losses = np.zeros(self.epochs)
 
         n_iter = 0
 
         for epoch in range(self.epochs):
-            if self.shuffle:
-                ref_idx = np.random.permutation(self.train_timesteps - self.T)
-            else:
-                ref_idx = np.array(range(self.train_timesteps - self.T))
-
             idx = 0
 
-            while idx < self.train_timesteps:
-                # get the indices of X_train
-                indices = ref_idx[idx:(idx + self.batch_size)]
-                x = np.zeros((len(indices), self.T - 1, self.input_size))
-                y_prev = np.zeros((len(indices), self.T - 1))
-
-                # Modify y_gt
-                # Ground truth must have shape
-                # (batch_size, T_predict): indices + self.T -1: indices + self.T -1 + T_predict
-                y_gt = np.zeros((len(indices), self.T_predict))
-
-                # Defines ground truth for only minute ahead forecasting                
-                # y_gt = self.y[indices + self.T - 1]
-
-                # format x into 3D tensor
-                for bs in range(len(indices)):
-                    x[bs, :, :] = self.X[indices[bs]:(indices[bs] + self.T - 1), :]
-                    y_prev[bs, :] = self.y[indices[bs]: (indices[bs] + self.T - 1)]
-                    y_gt[bs, :] = self.y[indices[bs] + self.T - 1: indices[bs] + self.T - 1 + self.T_predict]
-
+            # Training Set
+            for i, (x, y_prev, y_gt) in enumerate(self.train_dataloader):
                 loss = self.train_forward(x, y_prev, y_gt)
-                self.iter_losses[int(
-                    epoch * iter_per_epoch + idx / self.batch_size)] = loss
+
+                if (i + 1) % 5 == 0:
+                    print(f'epochs = {epoch}/{self.epochs}, iterations = {i+1}/{iter_per_epoch}, training loss = {loss}')
+
+                self.iter_losses[int(epoch * iter_per_epoch + idx / self.batch_size)] = loss
 
                 idx += self.batch_size
                 n_iter += 1
@@ -378,59 +529,91 @@ class DA_RNN(nn.Module):
 
                 self.epoch_losses[epoch] = np.mean(self.iter_losses[range(
                     epoch * iter_per_epoch, (epoch + 1) * iter_per_epoch)])
+                
+            # Validation Set
+            with torch.no_grad():
+                valid_idx = 0
 
-            if epoch % 10 == 0:
+                for i, (x, y_prev, y_gt) in enumerate(self.valid_dataloader):
+                    valid_loss = self.validate_forward(x, y_prev, y_gt)
+                    
+                    self.valid_iter_losses[int(epoch * valid_iter_per_epoch + valid_idx / self.batch_size)] = valid_loss
+
+                    valid_idx += self.batch_size
+
+                    self.valid_epoch_losses[epoch] = np.mean(self.valid_iter_losses[range(
+                        epoch * valid_iter_per_epoch, (epoch + 1) * valid_iter_per_epoch)])
+
+            if (epoch+1) % 5 == 0:
                 print("Epochs: ", epoch, " Iterations: ", n_iter,
-                      " Loss: ", self.epoch_losses[epoch])
+                      "Training Loss: ", self.epoch_losses[epoch],
+                      "Validation Loss: ", self.valid_epoch_losses[epoch])
 
-            if epoch % 10 == 0:
-                # NEED TO MODIFY PLOTS IF FORECASTING N_STEPS AHEAD
-                y_train_pred = self.test(on_train=True)
-                y_test_pred = self.test(on_train=False)
+                y_train_pred = self.test(self.train_dataset, self.train_dataloader)
+                y_valid_pred = self.test(self.valid_dataset, self.valid_dataloader)
 
-                # print("y_train_pred shape = " + str(y_train_pred.shape))
-                # print("y_test_pred shape = " + str(y_test_pred.shape))
+                if not self.old_data:
+                    y_test_pred = self.test(self.test_dataset, self.test_dataloader)
 
-                # y_pred = np.concatenate((y_train_pred, y_test_pred))
                 plt.ioff()
                 plt.figure()
-                plt.plot(range(1, 1 + len(self.y)), self.y, label="True")
+
+                if self.old_data:
+                    plt.plot(range(1, 1 + len(self.y)), self.y, label="True")
+                
+                else:
+                    plt.plot(range(1, 1 + len(self.y_train)), self.y_train, 
+                            label="True - Train")
+                    plt.plot(range(1 + len(self.y_train), 1 + len(self.y_train) + len(self.y_valid)), 
+                            self.y_valid, label="True - Valid")
 
                 if y_train_pred.shape[1] == 1:
-
-                    plt.plot(range(self.T, len(y_train_pred) + self.T),
-                            y_train_pred, label='Predicted - Train')
                     
-                    plt.axvline(x=self.T + len(y_train_pred), linestyle='--', color='red')
-                    plt.plot(range(self.T + len(y_train_pred), len(self.y) + 1),
-                            y_test_pred, label='Predicted - Test')
-                    plt.legend(loc='upper left')
-                    # plt.show()
+                    train_start = self.T
+                    train_end = train_start + len(y_train_pred)
+                    plt.plot(range(train_start, train_end), y_train_pred, label='Predicted - Train')                   
+                    plt.axvline(x=train_end, linestyle='--', color='red')
 
-                else:
+                    valid_start = train_end
+                    valid_end = valid_start + len(y_valid_pred)
+                    plt.plot(range(valid_start, valid_end), y_valid_pred, label='Predicted - Valid')
 
-                    for t1 in range(len(y_train_pred)):
-                        if t1 % self.T_predict == 0:
-                            x_values = [t1 + i for i in range(self.T, self.T + self.T_predict)]
-                            plt.plot(x_values, y_train_pred[t1], label='Predicted - Train')
-
-                    for t2 in range(len(y_test_pred)):
-                        if t2 % self.T_predict == 0:
-                            x_values = [t2 + i for i in range(self.train_timesteps, self.train_timesteps + self.T_predict)]
-                            plt.plot(x_values, y_test_pred[t2], label='Predicted - Test')
-
-                    # plt.legend(loc='upper left')
-                    # plt.show()
+                    if not self.old_data:
+                        test_start = valid_end
+                        test_end = test_start + len(y_test_pred)
+                        plt.plot(range(test_start, test_end), y_test_pred, label='Predicted - Test')
                 
-                plt.xlabel("Time (minutes)")
-                plt.ylabel("Nasdaq-100 (NDX) ($)")
-                plt.title("Epochs: {}, N iters: {}, Loss: {}".format(epoch, n_iter, self.epoch_losses[epoch]))
-                print("Saving and pushing figures to S3 Bucket.")
-                plt.savefig(os.path.join(self.output_dir, "model_epoch_{}_iter_{}.png".format(epoch, n_iter)))
-                self.s3_bucket.push_to_s3(self.output_dir, "model_epoch_{}_iter_{}.png".format(epoch, n_iter))
+                plt.legend(loc='upper left')
+                plt.show()
 
+    def validate_forward(self, x, y_prev, y_gt):
+        valid_loss = 0
+            
+        _, input_encoded = self.Encoder(Variable(x.type(torch.FloatTensor).to(self.device)))
+            
+        d_n = self.Decoder._init_states(input_encoded)
+        c_n = self.Decoder._init_states(input_encoded)
 
-    def train_forward(self, X, y_prev, y_gt):
+        y_prev = Variable(y_prev.type(torch.FloatTensor).to(self.device))
+
+        for t in range(self.T_predict):
+            if t == 0:
+                y_pred, d_n, c_n = self.Decoder(input_encoded, y_prev, d_n, c_n, initial=True)
+
+            else:
+                y_pred, d_n, c_n = self.Decoder(input_encoded, y_prev, d_n, c_n, initial=False)
+            
+            y_true = Variable(y_gt[:, t].type(torch.FloatTensor).to(self.device))
+
+            y_true = y_true.view(-1, 1)
+            valid_loss += self.criterion(y_pred, y_true)
+
+            y_prev = y_pred.detach()
+        
+        return valid_loss.item()
+
+    # Train forward is defined okay here! 
+    def train_forward(self, x, y_prev, y_gt):
         """Forward pass."""
         # set losses to zero
         loss = 0
@@ -439,13 +622,12 @@ class DA_RNN(nn.Module):
         self.encoder_optimizer.zero_grad()
         self.decoder_optimizer.zero_grad()
 
-        input_weighted, input_encoded = self.Encoder(
-            Variable(torch.from_numpy(X).type(torch.FloatTensor).to(self.device)))
+        input_weighted, input_encoded = self.Encoder(Variable(x.type(torch.FloatTensor).to(self.device)))
         
         d_n = self.Decoder._init_states(input_encoded)
         c_n = self.Decoder._init_states(input_encoded)
 
-        y_prev = Variable(torch.from_numpy(y_prev).type(torch.FloatTensor).to(self.device))
+        y_prev = Variable(y_prev.type(torch.FloatTensor).to(self.device))
 
         # Put below in for loop range(0, T_predict).
         # Need to check code below.
@@ -456,8 +638,7 @@ class DA_RNN(nn.Module):
             else:
                 y_pred, d_n, c_n = self.Decoder(input_encoded, y_prev, d_n, c_n, initial=False)
 
-            y_true = Variable(torch.from_numpy(
-                y_gt[:, t]).type(torch.FloatTensor).to(self.device))
+            y_true = Variable(y_gt[:, t].type(torch.FloatTensor).to(self.device))
 
             y_true = y_true.view(-1, 1)
             loss += self.criterion(y_pred, y_true)
@@ -471,54 +652,31 @@ class DA_RNN(nn.Module):
         self.decoder_optimizer.step()
 
         return loss.item()
-
-    def test(self, on_train=False):
+    
+    def test(self, dataset, dataloader):
         """Prediction."""
+        y_prediction = np.zeros((len(dataset), self.T_predict))
+        
+        j = 0
+        for i, (x, y_prev, y_gt) in enumerate(dataloader):
 
-        if on_train:
-            y_prediction = np.zeros((self.train_timesteps - self.T + 1, self.T_predict))
-
-        else:
-            y_prediction = np.zeros((self.X.shape[0] - self.train_timesteps, self.T_predict))
-
-        i = 0
-
-        while i < len(y_prediction):
-            batch_idx = np.array(range(len(y_prediction)))[i:(i + self.batch_size)]
-            X = np.zeros((len(batch_idx), self.T - 1, self.X.shape[1]))
-            y_history = np.zeros((len(batch_idx), self.T - 1))
-
-            for j in range(len(batch_idx)):
-                if on_train:
-                    X[j, :, :] = self.X[range(
-                        batch_idx[j], batch_idx[j] + self.T - 1), :]
-                    y_history[j, :] = self.y[range(
-                        batch_idx[j], batch_idx[j] + self.T - 1)]
-                else:
-                    X[j, :, :] = self.X[range(
-                        batch_idx[j] + self.train_timesteps - self.T, batch_idx[j] + self.train_timesteps - 1), :]
-                    y_history[j, :] = self.y[range(
-                        batch_idx[j] + self.train_timesteps - self.T, batch_idx[j] + self.train_timesteps - 1)]
+            y_prev = Variable(y_prev.type(torch.FloatTensor).to(self.device))
             
-            y_history = Variable(torch.from_numpy(
-                y_history).type(torch.FloatTensor).to(self.device))
-            
-            _, input_encoded = self.Encoder(
-                Variable(torch.from_numpy(X).type(torch.FloatTensor).to(self.device)))
+            _, input_encoded = self.Encoder(Variable(x.type(torch.FloatTensor).to(self.device)))
             
             d_n = self.Decoder._init_states(input_encoded)
             c_n = self.Decoder._init_states(input_encoded)
 
             for t in range(self.T_predict):
                 if t == 0:
-                    y_pred, d_n, c_n = self.Decoder(input_encoded, y_history, d_n, c_n, initial=True)
+                    y_pred, d_n, c_n = self.Decoder(input_encoded, y_prev, d_n, c_n, initial=True)
 
                 else:
-                    y_pred, d_n, c_n = self.Decoder(input_encoded, y_history, d_n, c_n, initial=False)
+                    y_pred, d_n, c_n = self.Decoder(input_encoded, y_prev, d_n, c_n, initial=False)
                 
-                y_history = y_pred
-                y_prediction[i:(i + self.batch_size), t] = y_history.cpu().data.numpy()[:, 0]
+                y_prev = y_pred
+                y_prediction[j:(j + self.batch_size), t] = y_prev.cpu().data.numpy()[:, 0]
                 
-            i += self.batch_size
+            j += self.batch_size
 
         return y_prediction
