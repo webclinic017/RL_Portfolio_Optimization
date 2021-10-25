@@ -345,7 +345,6 @@ class DA_RNN(nn.Module):
             train_range = pd.date_range(start='2020-09-01', end='2021-07-01', freq='MS').strftime("%Y-%m-%d")
             self.y_train = self.compute_y_total(train_range) 
             y_mean = np.mean(self.y_train)
-            self.y_train = self.y_train - y_mean
 
             x_train, y_prev_train, y_gt_train = self.pre_process_data(train_range, y_mean)
 
@@ -359,7 +358,6 @@ class DA_RNN(nn.Module):
 
             # Validation Set
             valid_range = pd.date_range(start='2021-08-01', end='2021-08-01', freq='MS').strftime("%Y-%m-%d")
-            self.y_valid = self.compute_y_total(valid_range) - y_mean
 
             x_valid, y_prev_valid, y_gt_valid = self.pre_process_data(valid_range, y_mean)
 
@@ -399,6 +397,17 @@ class DA_RNN(nn.Module):
                                                           self.Decoder.parameters()),
                                             lr=self.learning_rate)
 
+    def check_data_set(self, month_range):
+        indices_dict = {}
+        for m in range(len(month_range)):
+            month_begin = month_range[m]
+            data = self.s3_bucket.load_from_s3("Data/data_{}.csv".format(month_begin))
+            X = data.loc[:, [x for x in data.columns.tolist() if x != 'Date' and x != 'Date Time']].to_numpy()
+
+            if np.any(np.isnan(X)):
+                indices_dict[month_begin] = np.where(np.isnan(X))[0]
+        
+        return indices_dict
     
     def pre_process_old_data(self, train=True):
 
@@ -457,6 +466,8 @@ class DA_RNN(nn.Module):
 
             for i in day_indices:
                 data_day = data.loc[i]
+                data_day = data_day.bfill()
+
                 X = data_day.loc[:, [x for x in data_day.columns.tolist() if x != 'QQQ' and x != 'Date' and x != 'Date Time']].to_numpy()
                 y = np.array(data_day['QQQ']) - y_mean
 
@@ -513,8 +524,8 @@ class DA_RNN(nn.Module):
             for i, (x, y_prev, y_gt) in enumerate(self.train_dataloader):
                 loss = self.train_forward(x, y_prev, y_gt)
 
-                if (i + 1) % 5 == 0:
-                    print(f'epochs = {epoch}/{self.epochs}, iterations = {i+1}/{iter_per_epoch}, training loss = {loss}')
+                # if (i + 1) % 5 == 0:
+                #     print(f'epochs = {epoch}/{self.epochs}, iterations = {i+1}/{iter_per_epoch}, training loss = {loss}')
 
                 self.iter_losses[int(epoch * iter_per_epoch + idx / self.batch_size)] = loss
 
@@ -562,10 +573,10 @@ class DA_RNN(nn.Module):
                     plt.plot(range(1, 1 + len(self.y)), self.y, label="True")
                 
                 else:
-                    plt.plot(range(1, 1 + len(self.y_train)), self.y_train, 
+                    plt.plot(range(1, 1 + len(self.y_gt_train)), self.y_gt_train[:, 0], 
                             label="True - Train")
-                    plt.plot(range(1 + len(self.y_train), 1 + len(self.y_train) + len(self.y_valid)), 
-                            self.y_valid, label="True - Valid")
+                    plt.plot(range(1 + len(self.y_gt_train), 1 + len(self.y_gt_train) + len(self.y_gt_valid)), 
+                            self.y_gt_valid[:, 0], label="True - Valid")
 
                 if y_train_pred.shape[1] == 1:
                     
