@@ -4,7 +4,7 @@ setup(
     name='src',
     packages=find_packages(),
     version='0.1.0',
-    description='Project aims to use various Deep Reinforcement Learning methods to optimize a portfolio of stocks',
-    author='Sierra View RCM',
+    description='Project aims to use deep learning algorithms for trading',
+    author='Deep Alpha L.C.',
     license='MIT',
 )
