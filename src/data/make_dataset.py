@@ -18,10 +18,10 @@ class GetData(object):
         super().__init__()
         self.etf = 'QQQ'
         self.num_holdings = 81
+        self.s3_bucket = S3Bucket()
         self.holdings = self.get_qqq_holdings()
         self.missing_values = self.initialize_dictionary()
-        self.data_path = '{}/RL_Portfolio_Optimization/data/processed/'.format(os.environ['HOME'])
-        self.s3_bucket = S3Bucket()
+        self.data_path = '/Users/ramanganti/Desktop/ML_Trading/RL_Portfolio_Optimization/data/processed/'
         self.POLYGON_AGGS_URL = 'https://api.polygon.io/v2/aggs/ticker/{}/range/1/minute/{}/{}?adjusted=true&sort=asc&limit=5000&apiKey={}'
         self.session = requests.Session()
         self.month_range = pd.date_range(start='2019-09-01', end='2021-09-01', freq='MS').strftime("%Y-%m-%d")
@@ -47,19 +47,26 @@ class GetData(object):
             # Create a pandas dataframe from the information
             if data['queryCount'] > 1:
                 df = pd.DataFrame(data['results'])
-                df['date'] = pd.to_datetime(df['t'], unit='ms')
-                df.set_index('date', inplace=True)
-                df['symbol'] = symbol
+                df['Date Time'] = pd.to_datetime(df['t'], unit='ms')
+                df.set_index('Date Time', inplace=True)
 
                 df.drop(columns=['vw', 't', 'n'], inplace=True)
-                df.rename(columns={'v': 'volume', 'o': 'open', 'c': 'close', 'h': 'high', 'l': 'low'}, inplace=True)
+                df.rename(columns={'o': 'Open', 'h': 'High', 'l': 'Low', 'c': 'Close', 'v': 'Volume'}, inplace=True)
                 df.index = df.index.tz_localize('UTC').tz_convert('US/Eastern').strftime("%Y-%m-%d %H:%M:%S")
 
-                # print(df['close'].iloc[0])
-                # print("{} exists".format(symbol))
-
                 df_polygon = df['{} 09:30:00'.format(start):'{} 16:00:00'.format(end)]
-                d_symbol = {'Time': pd.to_datetime(df_polygon.index), symbol: pd.to_numeric(df_polygon['close'])}
+
+                df_polygon = df_polygon[['Open', 'High', 'Low', 'Close', 'Volume']]
+                df_polygon.index = pd.to_datetime(df_polygon.index)
+                df_polygon_reindex = df_polygon.reindex(time_range)
+                df_polygon_reindex = df_polygon_reindex.interpolate().bfill()
+
+                if symbol == self.etf:
+                    etf_file = '{}_{}.csv'.format(self.etf, start)
+                    df_polygon.to_csv(self.data_path + etf_file, index_label='Date Time')
+                    self.s3_bucket.push_to_s3(self.data_path + etf_file, "Data/" + etf_file)
+            
+                d_symbol = {'Time': df_polygon.index, symbol: pd.to_numeric(df_polygon['Close'])}
                 df_symbol = pd.DataFrame(data=d_symbol).set_index('Time')
                 df_symbol_reindex = df_symbol.reindex(time_range)
 
@@ -72,7 +79,7 @@ class GetData(object):
                 msg = ('No data for symbol ' + str(symbol) + ' between {} and {}'.format(start, end))
                 print(msg)
         
-        return df_symbol_reindex
+        return df_symbol_reindex #, df_polygon_reindex
     
     def append_to_df_holdings(self, symbol, day, df_holdings, time_range):
         df_symbol = self.get_bars(symbol, start=day, end=day, time_range=time_range)
@@ -158,7 +165,8 @@ class GetData(object):
     #     return top_holdings
     
     def get_qqq_holdings(self):
-        df = pd.read_csv('{}/RL_Portfolio_Optimization/data/raw/qqq_holdings.csv'.format(os.environ['HOME']))
+        # df = pd.read_csv('{}/RL_Portfolio_Optimization/data/raw/qqq_holdings.csv'.format(os.environ['HOME']))
+        df = self.s3_bucket.load_from_s3("qqq_holdings.csv")
         symbols_list = df['Holding Ticker'].to_list()
         symbols_list = [symbol.strip() for symbol in symbols_list]
         top_holdings = symbols_list[:self.num_holdings]
