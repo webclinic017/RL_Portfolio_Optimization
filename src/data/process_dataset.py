@@ -368,11 +368,11 @@ df_date.resample('1T', on='time')
 # %%
 df_date
 # %%
-missing_timestamps = []
-for date in date_range:
-    df_date = df[df['date'] == date]
+# missing_timestamps = []
+# for date in date_range:
+#     df_date = df[df['date'] == date]
 
-    for time in 
+#     for time in 
 
 # %%
 len(df.drop_duplicates('date')) * 389
