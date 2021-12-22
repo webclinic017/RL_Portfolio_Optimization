@@ -434,7 +434,6 @@ class DA_RNN(nn.Module):
                 y_gt[bs, :] = self.y[bs + self.train_timesteps - 1: bs + self.train_timesteps - 1 + self.T_predict]
         
         return x, y_prev, y_gt
-
     
     def compute_y_total(self, month_range):
         y_total = np.array([])
@@ -445,7 +444,26 @@ class DA_RNN(nn.Module):
             y_total = np.append(y_total, y)
         
         return y_total
+    
+    def process_daily_data(self, data, i, ref_idx, input_size, y_mean):
+        data_day = data.loc[i]
+        data_day = data_day.bfill()
 
+        X = data_day.loc[:, [x for x in data_day.columns.tolist() if x != 'QQQ' and x != 'Date' and x != 'Date Time']].to_numpy()
+        y = np.array(data_day['QQQ']) - y_mean
+
+        x = np.zeros((len(ref_idx), self.T - 1, input_size))
+        y_prev = np.zeros((len(ref_idx), self.T - 1))
+        y_gt = np.zeros((len(ref_idx), self.T_predict))
+
+        # format x into 3D tensor
+        for bs in range(len(ref_idx)):
+            x[bs, :, :] = X[ref_idx[bs]:(ref_idx[bs] + self.T - 1), :]
+            y_prev[bs, :] = y[ref_idx[bs]:(ref_idx[bs] + self.T - 1)]
+            y_gt[bs, :] = y[ref_idx[bs] + self.T - 1: ref_idx[bs] + self.T - 1 + self.T_predict]
+        
+        return x, y_prev, y_gt
+        
     def pre_process_data(self, month_range, y_mean):
         # Load month data into dataframe and loop through each day creating the x, y_prev, and y_gt arrays
 
@@ -465,21 +483,8 @@ class DA_RNN(nn.Module):
             y_gt_month = np.zeros((len(ref_idx) * len(day_indices), self.T_predict))
 
             for i in day_indices:
-                data_day = data.loc[i]
-                data_day = data_day.bfill()
 
-                X = data_day.loc[:, [x for x in data_day.columns.tolist() if x != 'QQQ' and x != 'Date' and x != 'Date Time']].to_numpy()
-                y = np.array(data_day['QQQ']) - y_mean
-
-                x = np.zeros((len(ref_idx), self.T - 1, input_size))
-                y_prev = np.zeros((len(ref_idx), self.T - 1))
-                y_gt = np.zeros((len(ref_idx), self.T_predict))
-
-                # format x into 3D tensor
-                for bs in range(len(ref_idx)):
-                    x[bs, :, :] = X[ref_idx[bs]:(ref_idx[bs] + self.T - 1), :]
-                    y_prev[bs, :] = y[ref_idx[bs]:(ref_idx[bs] + self.T - 1)]
-                    y_gt[bs, :] = y[ref_idx[bs] + self.T - 1: ref_idx[bs] + self.T - 1 + self.T_predict]
+                x, y_prev, y_gt = self.process_daily_data(data, i, ref_idx, input_size, y_mean)
 
                 x_month[len(ref_idx) * i:len(ref_idx) * (i+1)] = x
                 y_prev_month[len(ref_idx) * i:len(ref_idx) * (i+1)] = y_prev
