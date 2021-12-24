@@ -1,0 +1,3 @@
+Directory contains all backtesting python scripts to execute machine learning model located in models directory.
+strategy.py contains pyalgotrade code that loads qqq_data.csv as the data feed for backtester.
+
