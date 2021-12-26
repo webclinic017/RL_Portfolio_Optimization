@@ -1,7 +1,11 @@
+import math
+from typing import NamedTuple
+
 from pyalgotrade import strategy
 from pyalgotrade import barfeed
 from pyalgotrade.barfeed import csvfeed
 from pyalgotrade.bar import Frequency
+import numpy as np
 # from pyalgotrade.feed import csvfeed
 
 
@@ -35,8 +39,23 @@ class Predictor:
         pass
 
 
+class TradingResult(NamedTuple):
+    initial_portfolio: float
+    final_portfolio: float
+
+    def getProfit(self):
+        return self.final_portfolio - self.initial_portfolio
+
+    def getReturn(self):
+        return self.getProfit() / self.initial_portfolio
+
+
 class PredictorStrategy(strategy.BacktestingStrategy):
-    def __init__(self, feed, instrument, predictor, tick_size=0.01, lot_size=100, max_position=10000):
+    def __init__(self, feed, instrument, predictor,
+                 tick_size=0.01,
+                 lot_size=100,
+                 max_position=10000,
+                 risk_free_rate=0.05/252.0):
         super(PredictorStrategy, self).__init__(feed)
         self.instrument = instrument
         self.last_position = None
@@ -45,6 +64,8 @@ class PredictorStrategy(strategy.BacktestingStrategy):
         self.tick_size = tick_size
         self.lot_size = lot_size
         self.max_position = max_position
+        self.risk_free_rate = risk_free_rate
+        self.daily_returns = {}
 
     def onStart(self):
         self.info(f"Starting run. Initial portfolio value: $%.f" % self.initialPortfolio)
@@ -52,15 +73,19 @@ class PredictorStrategy(strategy.BacktestingStrategy):
     def onFinish(self, bars):
         broker = self.getBroker()
         portfolio = broker.getEquity()
-        profit = portfolio - self.initialPortfolio
-        returns = profit / self.initialPortfolio
-        date_times = self.getFeed().getDataSeries().getDateTimes()
-        trading_days = len(set([date_time.date() for date_time in date_times]))
+        overall_result = TradingResult(self.initialPortfolio, broker.getEquity())
+        profit = overall_result.getProfit()
+        returns = overall_result.getReturn()
+        daily_excess_returns = []
+        for result in self.daily_returns.values():
+            daily_excess_returns.append(result.getReturn() - self.risk_free_rate)
+        trading_days = len(self.daily_returns)
+        sharpe = np.mean(daily_excess_returns) / np.std(daily_excess_returns) if trading_days > 1 else math.nan
         year_fraction = trading_days / 252.0
-        daily_returns = (returns + 1.0) ** (1.0 / trading_days) - 1.0
-        annual_returns = (returns + 1.0) ** (1.0 / year_fraction) - 1.0
-        self.info(f"Completed run. Final portfolio value: $%.2f. Final PnL: $%.2f. Daily return: %.2f%%. Annual return: %.2f%%. Current position %.1f"
-                  % (portfolio, profit, daily_returns * 100.0, annual_returns * 100.0, broker.getShares(self.instrument)))
+        daily_return = (returns + 1.0) ** (1.0 / trading_days) - 1.0
+        annual_return = (returns + 1.0) ** (1.0 / year_fraction) - 1.0
+        self.info(f"Completed run. Final portfolio value: $%.2f. Final PnL: $%.2f. Daily return: %.2f%%. Annual return: %.2f%%. Sharpe ratio: %.2f. Current position %.1f"
+                  % (portfolio, profit, daily_return * 100.0, annual_return * 100.0, sharpe, broker.getShares(self.instrument)))
 
     def onEnterOk(self, position):
         order = position.getEntryOrder()
@@ -81,11 +106,22 @@ class PredictorStrategy(strategy.BacktestingStrategy):
             self.last_position = None
 
         bar = bars[self.instrument]
+
+        date = bar.getDateTime().date()
+        current_portfolio = self.getBroker().getEquity()
+        if date in self.daily_returns:
+            previous_returns = self.daily_returns[date]
+            self.daily_returns[date] = TradingResult(previous_returns.initial_portfolio, current_portfolio)
+        else:
+            self.daily_returns[date] = TradingResult(current_portfolio, current_portfolio)
+
         close_price = bar.getClose()
         self.debug(f"New price: $%.2f" % close_price)
 
         feed_series = self.getFeed().getDataSeries()
-        prediction = self.predictor.predict(feed_series.getDateTimes(), feed_series.getCloseDataSeries())
+        date_times_for_date = [dt for dt in feed_series.getDateTimes() if dt.date() == date]
+        close_data_for_date = feed_series.getCloseDataSeries()[-len(date_times_for_date):]
+        prediction = self.predictor.predict(date_times_for_date, close_data_for_date)
 
         broker = self.getBroker()
         current_shares = broker.getShares(self.instrument)
