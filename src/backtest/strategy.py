@@ -190,6 +190,7 @@ class LongShortStrategy(strategy.BacktestingStrategy):
 
 feed = csvfeed.GenericBarFeed(frequency=Frequency.MINUTE)
 feed.addBarsFromCSV("qqq", "qqq_data.csv")
+feed.addBarsFromCSV("qqq", "qqq_data_2021-09-01.csv")
 
 # strategy = LongShortStrategy(feed, "qqq")
 strategy = PredictorStrategy(feed, "qqq", DummyPredictor())
