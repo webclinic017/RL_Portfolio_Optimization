@@ -35,7 +35,7 @@ import numpy as np
     
 #     return valid_loss.item()
 class Predictor:
-    def predict(self, date_time_series, close_data_series):
+    def predict(self, date_time_series, close_data_series, additional_close_data_series):
         pass
 
 
@@ -52,6 +52,7 @@ class TradingResult(NamedTuple):
 
 class PredictorStrategy(strategy.BacktestingStrategy):
     def __init__(self, feed, instrument, predictor,
+                 additional_instruments=None,
                  tick_size=0.01,
                  lot_size=100,
                  max_position=10000,
@@ -61,6 +62,7 @@ class PredictorStrategy(strategy.BacktestingStrategy):
         self.last_position = None
         self.initialPortfolio = self.getBroker().getEquity()
         self.predictor = predictor
+        self.additional_instruments = additional_instruments if additional_instruments is not None else []
         self.tick_size = tick_size
         self.lot_size = lot_size
         self.max_position = max_position
@@ -118,10 +120,12 @@ class PredictorStrategy(strategy.BacktestingStrategy):
         close_price = bar.getClose()
         self.debug(f"New price: $%.2f" % close_price)
 
-        feed_series = self.getFeed().getDataSeries()
-        date_times_for_date = [dt for dt in feed_series.getDateTimes() if dt.date() == date]
-        close_data_for_date = feed_series.getCloseDataSeries()[-len(date_times_for_date):]
-        prediction = self.predictor.predict(date_times_for_date, close_data_for_date)
+        feed_series = self.getFeed().getDataSeries(instrument=self.instrument)
+        date_times_for_date = np.array([dt for dt in feed_series.getDateTimes() if dt.date() == date])
+        closes_for_date = self._close_prices(self.instrument, date_times_for_date)
+        additional_closes_for_date = \
+            np.array([self._close_prices(instrument, date_times_for_date) for instrument in self.additional_instruments])
+        prediction = self.predictor.predict(date_times_for_date, closes_for_date, additional_closes_for_date)
 
         broker = self.getBroker()
         current_shares = broker.getShares(self.instrument)
@@ -145,10 +149,13 @@ class PredictorStrategy(strategy.BacktestingStrategy):
             self.last_position = self.enterShortLimit(self.instrument, sell_target_price, quantity)
             self.debug(f"Submitting order to SELL %.1f at $%.2f" % (quantity, sell_target_price))
 
+    def _close_prices(self, instrument, date_times_for_date):
+        return np.array(self.getFeed().getDataSeries(instrument=instrument).getCloseDataSeries()[-len(date_times_for_date):])
+
 
 class DummyPredictor(Predictor):
 
-    def predict(self, date_time_series, close_data_series):
+    def predict(self, date_time_series, close_data_series, additional_close_data_series):
         if len(close_data_series) > 5:
             return close_data_series[-1] + (close_data_series[-1] - close_data_series[-2])
 
@@ -185,15 +192,19 @@ class LongShortStrategy(strategy.BacktestingStrategy):
             self.position = self.enterLong(self.instrument, quantity)
 
 
+def feed_for_dates(instruments, dates):
+    bar_feed = csvfeed.GenericBarFeed(frequency=Frequency.MINUTE)
+    for instrument in instruments:
+        for date in dates:
+            bar_feed.addBarsFromCSV(instrument, f"%s_data_%s.csv" % (instrument, date))
+    return bar_feed
+
+
 # feed = yahoofeed.Feed()
 # feed.addBarsFromCSV("spy", "spy.csv")
-
-feed = csvfeed.GenericBarFeed(frequency=Frequency.MINUTE)
-feed.addBarsFromCSV("qqq", "qqq_data.csv")
-feed.addBarsFromCSV("qqq", "qqq_data_2021-09-01.csv")
-
+feed = feed_for_dates(["qqq", "test1"], ["2021-08-02", "2021-09-01"])
 # strategy = LongShortStrategy(feed, "qqq")
-strategy = PredictorStrategy(feed, "qqq", DummyPredictor())
+strategy = PredictorStrategy(feed, "qqq", DummyPredictor(), additional_instruments=['test1'])
 strategy.run()
 portfolio_value = strategy.getBroker().getEquity() + strategy.getBroker().getCash()
 print(portfolio_value)

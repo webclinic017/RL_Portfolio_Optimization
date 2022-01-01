@@ -23,6 +23,8 @@ from torch.utils.data import Dataset, DataLoader
 from s3_bucket import S3Bucket
 import os
 
+from src.backtest.strategy import Predictor, PredictorStrategy, feed_for_dates
+
 
 def read_data(input_path, debug=True):
     """
@@ -517,8 +519,8 @@ class DA_RNN(nn.Module):
 
         valid_iter_per_epoch = int(
             np.ceil(self.valid_samples * 1. / self.batch_size))
-        self.valid_iter_losses = np.zeros(self.epochs * valid_iter_per_epoch)
-        self.valid_epoch_losses = np.zeros(self.epochs)
+        self.valid_iter_pnls = np.zeros(self.epochs * valid_iter_per_epoch)
+        self.valid_epoch_pnls = np.zeros(self.epochs)
 
         n_iter = 0
 
@@ -550,20 +552,25 @@ class DA_RNN(nn.Module):
             with torch.no_grad():
                 valid_idx = 0
 
-                for i, (x, y_prev, y_gt) in enumerate(self.valid_dataloader):
-                    valid_loss = self.validate_forward(x, y_prev, y_gt)
-                    
-                    self.valid_iter_losses[int(epoch * valid_iter_per_epoch + valid_idx / self.batch_size)] = valid_loss
+                # Need to rework which data we use here. Instead of using dataloader, we want the instrument symbols
+                # and backtesting dates to pass into validate_forward_backtest.
+                target_instrument = "qqq"
+                input_instruments = ["test1"]
+                lookback_window = 10
+                dates = ["2021-08-02", "2021-09-01"]
+                valid_pnl = self.validate_forward_backtest(target_instrument, input_instruments, lookback_window, dates)
 
-                    valid_idx += self.batch_size
+                self.valid_iter_pnls[int(epoch * valid_iter_per_epoch + valid_idx / self.batch_size)] = valid_pnl
 
-                    self.valid_epoch_losses[epoch] = np.mean(self.valid_iter_losses[range(
-                        epoch * valid_iter_per_epoch, (epoch + 1) * valid_iter_per_epoch)])
+                valid_idx += self.batch_size
+
+                self.valid_epoch_pnls[epoch] = np.mean(self.valid_iter_pnls[range(
+                    epoch * valid_iter_per_epoch, (epoch + 1) * valid_iter_per_epoch)])
 
             if (epoch+1) % 5 == 0:
                 print("Epochs: ", epoch, " Iterations: ", n_iter,
                       "Training Loss: ", self.epoch_losses[epoch],
-                      "Validation Loss: ", self.valid_epoch_losses[epoch])
+                      "Validation PnL: ", self.valid_epoch_pnls[epoch])
 
                 y_train_pred = self.test(self.train_dataset, self.train_dataloader)
                 y_valid_pred = self.test(self.valid_dataset, self.valid_dataloader)
@@ -628,7 +635,18 @@ class DA_RNN(nn.Module):
         
         return valid_loss.item()
 
-    # Train forward is defined okay here! 
+    def validate_forward_backtest(self, target_instrument, input_instruments, lookback_window, dates):
+        all_instruments = set(input_instruments + target_instrument)
+        feed = feed_for_dates(all_instruments, dates)
+
+        predictor = DaRnnPredictor(self.Encoder, self.Decoder, self.device, lookback_window)
+        strategy = PredictorStrategy(feed, target_instrument, predictor, additional_instruments=input_instruments)
+        initial_portfolio = strategy.getBroker().getEquity()
+        strategy.run()
+        final_portfolio = strategy.getBroker().getEquity()
+        return final_portfolio - initial_portfolio
+
+    # Train forward is defined okay here!
     def train_forward(self, x, y_prev, y_gt):
         """Forward pass."""
         # set losses to zero
@@ -696,3 +714,24 @@ class DA_RNN(nn.Module):
             j += self.batch_size
 
         return y_prediction
+
+
+class DaRnnPredictor(Predictor):
+    def __init__(self, encoder, decoder, device, lookback_window):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.device = device
+        self.lookback_window = lookback_window
+
+    def predict(self, date_time_series, close_data_series, additional_close_data_series):
+        if len(close_data_series) >= self.lookback_window:
+            _, input_encoded = self.encoder(Variable(additional_close_data_series.type(torch.FloatTensor).to(self.device)))
+
+            d_n = self.decoder._init_states(input_encoded)
+            c_n = self.decoder._init_states(input_encoded)
+
+            y_prev = Variable(close_data_series.type(torch.FloatTensor).to(self.device))
+
+            y_pred, _, __ = self.decoder(input_encoded, y_prev, d_n, c_n, initial=True)
+            return y_pred
