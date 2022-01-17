@@ -324,8 +324,9 @@ class DA_RNN(nn.Module):
         if self.old_data:
             self.train_timesteps = int(self.X.shape[0] * 0.7)
             self.valid_timesteps = self.X.shape[0] - self.train_timesteps
+            self.y_mean = np.mean(self.y[:self.train_timesteps])
 
-            self.y = self.y - np.mean(self.y[:self.train_timesteps])
+            self.y = self.y - self.y_mean
             self.input_size = self.X.shape[1]
 
             # Training Set
@@ -342,7 +343,8 @@ class DA_RNN(nn.Module):
 
         else:
             # Training Set
-            train_range = pd.date_range(start='2020-09-01', end='2021-07-01', freq='MS').strftime("%Y-%m-%d")
+            print("Pre-process training data: ")
+            train_range = pd.date_range(start='2020-08-01', end='2021-02-01', freq='MS').strftime("%Y-%m-%d")
             self.y_train = self.compute_y_total(train_range) 
             y_mean = np.mean(self.y_train)
 
@@ -356,8 +358,11 @@ class DA_RNN(nn.Module):
             self.train_samples = len(self.train_dataset)
             self.train_dataloader = DataLoader(dataset=self.train_dataset, batch_size=self.batch_size, shuffle=False)
 
+            print("Loaded training data loader.\n")
+
             # Validation Set
-            valid_range = pd.date_range(start='2021-08-01', end='2021-08-01', freq='MS').strftime("%Y-%m-%d")
+            print("Pre-process validation data: ")
+            valid_range = pd.date_range(start='2021-02-01', end='2021-03-01', freq='MS').strftime("%Y-%m-%d")
 
             x_valid, y_prev_valid, y_gt_valid = self.pre_process_data(valid_range, y_mean)
 
@@ -370,6 +375,8 @@ class DA_RNN(nn.Module):
             self.valid_dataset = StockDataset(x_valid[:valid_timesteps], y_prev_valid[:valid_timesteps], y_gt_valid[:valid_timesteps])
             self.valid_samples = len(self.valid_dataset)
             self.valid_dataloader = DataLoader(dataset=self.valid_dataset, batch_size=self.batch_size, shuffle=False)
+
+            print("Loaded validation data loader.\n")
 
             # Test Set
             self.test_dataset = StockDataset(x_valid[valid_timesteps:], y_prev_valid[valid_timesteps:], y_gt_valid[valid_timesteps:])
@@ -445,6 +452,7 @@ class DA_RNN(nn.Module):
         
         return y_total
     
+    # Modify here in prepocessing of data. Do differencing of both the Features X and the Target y.
     def process_daily_data(self, data, i, ref_idx, input_size, y_mean):
         data_day = data.loc[i]
         data_day = data_day.bfill()
@@ -551,6 +559,8 @@ class DA_RNN(nn.Module):
                 valid_idx = 0
 
                 for i, (x, y_prev, y_gt) in enumerate(self.valid_dataloader):
+
+                    # HERES WHERE VALIDATION IS CALLED AFTER MODEL TRAINING
                     valid_loss = self.validate_forward(x, y_prev, y_gt)
                     
                     self.valid_iter_losses[int(epoch * valid_iter_per_epoch + valid_idx / self.batch_size)] = valid_loss
@@ -571,11 +581,11 @@ class DA_RNN(nn.Module):
                 if not self.old_data:
                     y_test_pred = self.test(self.test_dataset, self.test_dataloader)
 
-                plt.ioff()
-                plt.figure()
+                # plt.ioff()
+                # plt.figure()
 
                 if self.old_data:
-                    plt.plot(range(1, 1 + len(self.y)), self.y, label="True")
+                    plt.plot(range(1, 1 + len(self.y)), self.y + self.y_mean, label="Ground Truth")
                 
                 else:
                     plt.plot(range(1, 1 + len(self.y_gt_train)), self.y_gt_train[:, 0], 
@@ -587,20 +597,35 @@ class DA_RNN(nn.Module):
                     
                     train_start = self.T
                     train_end = train_start + len(y_train_pred)
-                    plt.plot(range(train_start, train_end), y_train_pred, label='Predicted - Train')                   
+                    plt.plot(range(train_start, train_end), y_train_pred, label='Prediction - Training')                   
                     plt.axvline(x=train_end, linestyle='--', color='red')
 
                     valid_start = train_end
                     valid_end = valid_start + len(y_valid_pred)
-                    plt.plot(range(valid_start, valid_end), y_valid_pred, label='Predicted - Valid')
+                    plt.plot(range(valid_start, valid_end), y_valid_pred, label='Prediction - Validation')
 
                     if not self.old_data:
                         test_start = valid_end
                         test_end = test_start + len(y_test_pred)
-                        plt.plot(range(test_start, test_end), y_test_pred, label='Predicted - Test')
+                        plt.plot(range(test_start, test_end), y_test_pred, label='Prediction - Test')
                 
                 plt.legend(loc='upper left')
                 plt.show()
+
+                plt.xlabel("Time (Minutes)")
+                # plt.xlim(0, 37000)
+
+                if self.old_data:
+                    plt.ylabel("Nasdaq-100 (NDX) ($)")
+                else:
+                    plt.ylabel("QQQ ($)")
+
+                # plt.title("Epochs: {}, N iters: {}, Loss: {}".format(epoch, n_iter, self.epoch_losses[epoch]))
+                
+                # print("Saving and pushing figures to S3 Bucket.")
+                # plt.savefig(os.path.join(self.output_dir, "model_epoch_{}_iter_{}.png".format(epoch, n_iter)))
+                # self.s3_bucket.push_to_s3(self.output_dir, "model_epoch_{}_iter_{}.png".format(epoch, n_iter))
+
 
     def validate_forward(self, x, y_prev, y_gt):
         valid_loss = 0
