@@ -1,14 +1,10 @@
 """
 DA-RNN model architecture.
 
-@author Zhenye Na 05/21/2018
-@modified 11/05/2019
-
 References:
     [1] Yao Qin, Dongjin Song, Haifeng Chen, Wei Cheng, Guofei Jiang, Garrison W. Cottrell.
         "A Dual-Stage Attention-Based Recurrent Neural Network for Time Series Prediction"
         arXiv preprint arXiv:1704.02971 (2017).
-    [2] Chandler Zuo. "A PyTorch Example to Use RNN for Financial Prediction" (2017).
 """
 
 import matplotlib.pyplot as plt
@@ -346,9 +342,9 @@ class DA_RNN(nn.Module):
             print("Pre-process training data: ")
             train_range = pd.date_range(start='2020-08-01', end='2021-02-01', freq='MS').strftime("%Y-%m-%d")
             self.y_train = self.compute_y_total(train_range) 
-            y_mean = np.mean(self.y_train)
+            self.y_mean = np.mean(self.y_train)
 
-            x_train, y_prev_train, y_gt_train = self.pre_process_data(train_range, y_mean)
+            x_train, y_prev_train, y_gt_train = self.pre_process_data(train_range, self.y_mean)
 
             self.x_train = x_train
             self.y_prev_train = y_prev_train
@@ -364,7 +360,7 @@ class DA_RNN(nn.Module):
             print("Pre-process validation data: ")
             valid_range = pd.date_range(start='2021-02-01', end='2021-03-01', freq='MS').strftime("%Y-%m-%d")
 
-            x_valid, y_prev_valid, y_gt_valid = self.pre_process_data(valid_range, y_mean)
+            x_valid, y_prev_valid, y_gt_valid = self.pre_process_data(valid_range, self.y_mean)
 
             self.x_valid = x_valid
             self.y_prev_valid = y_prev_valid
@@ -571,9 +567,9 @@ class DA_RNN(nn.Module):
                         epoch * valid_iter_per_epoch, (epoch + 1) * valid_iter_per_epoch)])
 
             if (epoch+1) % 5 == 0:
-                print("Epochs: ", epoch, " Iterations: ", n_iter,
-                      "Training Loss: ", self.epoch_losses[epoch],
-                      "Validation Loss: ", self.valid_epoch_losses[epoch])
+                # print("Epochs: ", epoch, " Iterations: ", n_iter,
+                #       "Training Loss: ", self.epoch_losses[epoch],
+                #       "Validation Loss: ", self.valid_epoch_losses[epoch])
 
                 y_train_pred = self.test(self.train_dataset, self.train_dataloader)
                 y_valid_pred = self.test(self.valid_dataset, self.valid_dataloader)
@@ -588,37 +584,39 @@ class DA_RNN(nn.Module):
                     plt.plot(range(1, 1 + len(self.y)), self.y + self.y_mean, label="Ground Truth")
                 
                 else:
-                    plt.plot(range(1, 1 + len(self.y_gt_train)), self.y_gt_train[:, 0], 
+                    plt.plot(range(1, 1 + len(self.y_gt_train)), self.y_gt_train[:, 0] + self.y_mean, 
                             label="True - Train")
                     plt.plot(range(1 + len(self.y_gt_train), 1 + len(self.y_gt_train) + len(self.y_gt_valid)), 
-                            self.y_gt_valid[:, 0], label="True - Valid")
+                            self.y_gt_valid[:, 0] + self.y_mean, label="True - Valid")
 
                 if y_train_pred.shape[1] == 1:
                     
                     train_start = self.T
                     train_end = train_start + len(y_train_pred)
-                    plt.plot(range(train_start, train_end), y_train_pred, label='Prediction - Training')                   
+                    plt.plot(range(train_start, train_end), y_train_pred + self.y_mean, label='Prediction - Training')                   
                     plt.axvline(x=train_end, linestyle='--', color='red')
 
                     valid_start = train_end
                     valid_end = valid_start + len(y_valid_pred)
-                    plt.plot(range(valid_start, valid_end), y_valid_pred, label='Prediction - Validation')
+                    plt.plot(range(valid_start, valid_end), y_valid_pred + self.y_mean, label='Prediction - Validation')
 
                     if not self.old_data:
                         test_start = valid_end
                         test_end = test_start + len(y_test_pred)
-                        plt.plot(range(test_start, test_end), y_test_pred, label='Prediction - Test')
+                        plt.plot(range(test_start, test_end), y_test_pred + self.y_mean, label='Prediction - Test')
                 
                 plt.legend(loc='upper left')
-                plt.show()
-
                 plt.xlabel("Time (Minutes)")
+                plt.title(f'Epochs: {epoch}, Training Loss: {self.epoch_losses[epoch]:.2f}, Validation Loss: {self.valid_epoch_losses[epoch]:.2f}')
+
                 # plt.xlim(0, 37000)
 
                 if self.old_data:
                     plt.ylabel("Nasdaq-100 (NDX) ($)")
                 else:
                     plt.ylabel("QQQ ($)")
+                
+                plt.show()
 
                 # plt.title("Epochs: {}, N iters: {}, Loss: {}".format(epoch, n_iter, self.epoch_losses[epoch]))
                 
