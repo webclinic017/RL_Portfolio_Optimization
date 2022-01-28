@@ -1,10 +1,11 @@
 import boto3
 import pandas as pd
 import os
+from src.config import AWS_DEFAULT_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 
-os.environ["AWS_DEFAULT_REGION"] = 'us-east-1'
-os.environ["AWS_ACCESS_KEY_ID"] = 'AKIAZURDHJ7XTWF2Q55F'
-os.environ["AWS_SECRET_ACCESS_KEY"] = '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'
+os.environ["AWS_DEFAULT_REGION"] = AWS_DEFAULT_REGION
+os.environ["AWS_ACCESS_KEY_ID"] = AWS_ACCESS_KEY_ID
+os.environ["AWS_SECRET_ACCESS_KEY"] = AWS_SECRET_ACCESS_KEY
 
 
 class S3Bucket(object):
@@ -12,9 +13,9 @@ class S3Bucket(object):
         super().__init__()
         self.s3 = boto3.resource(
             service_name='s3',
-            region_name='us-east-1',
-            aws_access_key_id='AKIAZURDHJ7XTWF2Q55F',
-            aws_secret_access_key='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'
+            region_name=AWS_DEFAULT_REGION,
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY
         )
         self.s3_name = 'rganti-qqq-data'
 
