@@ -1,10 +1,3 @@
-"""
-DA-RNN model architecture as described in:
-Yao Qin, Dongjin Song, Haifeng Chen, Wei Cheng, Guofei Jiang, Garrison W. Cottrell.
-"A Dual-Stage Attention-Based Recurrent Neural Network for Time Series Prediction"
-arXiv preprint arXiv:1704.02971 (2017).
-"""
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
