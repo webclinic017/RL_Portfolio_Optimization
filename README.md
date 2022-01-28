@@ -1,7 +1,13 @@
 RL Portfolio Optimization
 ==============================
 
-Project aims to use various Deep Reinforcement Learning methods to optimize a portfolio of stocks
+Project aims to use various Deep Learning methods to optimize a portfolio of stocks.
+
+DA-RNN model architecture as described in:
+
+Yao Qin, Dongjin Song, Haifeng Chen, Wei Cheng, Guofei Jiang, Garrison W. Cottrell.
+"A Dual-Stage Attention-Based Recurrent Neural Network for Time Series Prediction"
+arXiv preprint arXiv:1704.02971 (2017).
 
 Installation
 -------------
